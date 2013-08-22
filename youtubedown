@@ -46,7 +46,7 @@ use strict;
 use Socket;
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my $version = q{ $Revision: 1.195 $ }; $version =~ s/^[^0-9]+([0-9.]+).*$/$1/;
+my $version = q{ $Revision: 1.204 $ }; $version =~ s/^[^0-9]+([0-9.]+).*$/$1/;
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -447,7 +447,7 @@ sub get_url($;$$$$$$$) {
 sub check_http_status($$$) {
   my ($url, $http, $err_p) = @_;
   return 1 if ($http =~ m@^HTTP/[0-9.]+ 20\d@si);
-  errorI ("$http: $url") if ($err_p > 1);
+  errorI ("$http: $url") if ($err_p > 1 && $verbose);
   error  ("$http: $url") if ($err_p);
   return 0;
 }
@@ -580,6 +580,14 @@ my %ciphers = (
   'vflLC8JvQ' => 'w34 w29 w9 r w39 w24',            # 25 Jul 2013
   'vflm_D8eE' => 's2 r w39 w55 w49 s3 w56 w2',      # 30 Jul 2013
   'vflTWC9KW' => 'r s2 w65 r',                      # 31 Jul 2013
+  'vflRFcHMl' => 's3 w24 r',                        # 04 Aug 2013
+  'vflM2EmfJ' => 'w10 r s1 w45 s2 r s3 w50 r',      # 06 Aug 2013
+  'vflz8giW0' => 's2 w18 s3',                       # 07 Aug 2013
+  'vfl_wGgYV' => 'w60 s1 r s1 w9 s3 r s3 r',        # 08 Aug 2013
+  'vfl1HXdPb' => 'w52 r w18 r s1 w44 w51 r s1',     # 12 Aug 2013
+  'vflkn6DAl' => 'w39 s2 w57 s2 w23 w35 s2',        # 15 Aug 2013
+  'vfl2LOvBh' => 'w34 w19 r s1 r s3 w24 r',         # 16 Aug 2013
+  'vfl-bxy_m' => 'w48 s3 w37 s2',                   # 20 Aug 2013
 );
 
 sub decipher_sig($$$) {
@@ -592,7 +600,8 @@ sub decipher_sig($$$) {
 
   my $c = $ciphers{$cipher};
   if (! $c) {
-    print STDERR "$progname: WARNING: $id: unknown cipher $cipher!\n";
+    print STDERR "$progname: WARNING: $id: unknown cipher $cipher!\n"
+      if ($verbose);
     $c = guess_cipher ($cipher);
   }
 
@@ -630,7 +639,7 @@ sub decipher_sig($$$) {
 sub guess_cipher(;$$) {
   my ($cipher_id, $selftest_p) = @_;
 
-  $verbose = 2 if ($verbose < 2 && !$selftest_p);
+  $verbose = 2 if ($verbose == 1 && !$selftest_p);
 
 
   my $url = "http://www.youtube.com/";
@@ -858,6 +867,8 @@ sub apply_signature($$$$$) {
         my $n = $sig;
         my ($a, $b) = split(/\./, $o);
         my ($c, $d) = split(/\./, $sig);
+        ($a, $b) = ($o,   '') unless defined($b);
+        ($c, $d) = ($sig, '') unless defined($d);
         my $L1 = sprintf("%d %d.%d", length($o),   length($a), length($b));
         my $L2 = sprintf("%d %d.%d", length($sig), length($c), length($d));
         foreach ($o, $n) { s/\./.\n          /gs; }
@@ -1069,6 +1080,13 @@ sub scrape_youtube_url_html($$$$$) {
       $err =~ s/^\s+|\s+$//s;
       $err =~ s/\.(: )/$1/gs;
       $err =~ s/\.$//gs;
+
+      my ($title) = ($body =~ m@<title>\s*(.*?)\s*</title>@si);
+      if ($title) {
+        $title = munge_title (url_unquote ($title));
+        $err = "$err ($title)";
+      }
+
       error ("$id: $err");
     }
   }
@@ -1507,6 +1525,7 @@ sub munge_title($) {
   # yes I know it's a video
   $title =~ s/\s*[\[\(][^\[\(]*?\s*\b(video|hd|hq|high quality)[\]\)]\s*$//gsi;
   $title =~ s@\[audio\]@ @gsi;
+  $title =~ s@\[mv\]@ @gsi;
   $title =~ s/(official\s*)?(music\s*)?video(\s*clip)?\b//gsi;
   $title =~ s/\s\(official\)//gsi;
   $title =~ s/[-:\s]*SXSW[\d ]*Showcas(e|ing) Artist\b//gsi;
