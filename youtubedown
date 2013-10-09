@@ -45,8 +45,9 @@ use diagnostics;
 use strict;
 use Socket;
 
+my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my $version = q{ $Revision: 1.204 $ }; $version =~ s/^[^0-9]+([0-9.]+).*$/$1/;
+my $version = q{ $Revision: 1.229 $ }; $version =~ s/^[^0-9]+([0-9.]+).*$/$1/;
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -588,6 +589,20 @@ my %ciphers = (
   'vflkn6DAl' => 'w39 s2 w57 s2 w23 w35 s2',        # 15 Aug 2013
   'vfl2LOvBh' => 'w34 w19 r s1 r s3 w24 r',         # 16 Aug 2013
   'vfl-bxy_m' => 'w48 s3 w37 s2',                   # 20 Aug 2013
+  'vflZK4ZYR' => 'w19 w68 s1',                      # 21 Aug 2013
+  'vflh9ybst' => 'w48 s3 w37 s2',                   # 21 Aug 2013
+  'vflapUV9V' => 's2 w53 r w59 r s2 w41 s3',        # 27 Aug 2013
+  'vflg0g8PQ' => 'w36 s3 r s2',                     # 28 Aug 2013
+  'vflHOr_nV' => 'w58 r w50 s1 r s1 r w11 s3',      # 30 Aug 2013
+  'vfluy6kdb' => 'r w12 w32 r w34 s3 w35 w42 s2',   # 05 Sep 2013
+  'vflkuzxcs' => 'w22 w43 s3 r s1 w43',             # 10 Sep 2013
+  'vflGNjMhJ' => 'w43 w2 w54 r w8 s1',              # 12 Sep 2013
+  'vfldJ8xgI' => 'w11 r w29 s1 r s3',               # 17 Sep 2013
+  'vfl79wBKW' => 's3 r s1 r s3 r s3 w59 s2',        # 19 Sep 2013
+  'vflg3FZfr' => 'r s3 w66 w10 w43 s2',             # 24 Sep 2013
+  'vflUKrNpT' => 'r s2 r w63 r',                    # 25 Sep 2013
+  'vfldWnjUz' => 'r s1 w68',                        # 30 Sep 2013
+  'vflP7iCEe' => 'w7 w37 r s1',                     # 03 Oct 2013
 );
 
 sub decipher_sig($$$) {
@@ -719,10 +734,34 @@ sub guess_cipher(;$$) {
   if ($verbose > 1) {
     my $c2 = "  '$cipher_id' => '$cipher',";
     $c2 = sprintf ("%-52s# %s", $c2, $date);
+    auto_update($c2) if ($selftest_p && $selftest_p == 2);
     print STDERR "$progname: current cipher is:\n$c2\n";
   }
 
   return $cipher;
+}
+
+
+# Tired of doing this by hand. Crontabbed self-modifying code!
+#
+sub auto_update($) {
+  my ($cipher_line) = @_;
+
+  open (my $in, '<', $progname0) || error ("$progname0: $!");
+  local $/ = undef;  # read entire file  
+  my ($body) = <$in>;
+  close $in;
+
+  $body =~ s@(\nmy %ciphers = .*?)(\);)@$1$cipher_line\n$2@s ||
+    error ("auto-update: unable to splice");
+
+  open (my $out, '>', $progname0) || error ("$progname0: $!");
+  print $out $body;
+  close $out;
+  print STDERR "$progname: auto-updated $progname0\n";
+
+  my ($dir) = $ENV{HOME} . '/www/hacks';
+  system ("cd '$dir' && cvs -q commit -m 'cipher auto-update' '$progname'");
 }
 
 
@@ -791,6 +830,7 @@ sub decipher_selftest() {
    '3091D200B71AA36948AC517EC7DB161377428B35.' .
    '099E8280F1CD26E4F47F5EBED0422C88CAF6AA84',
 
+   # This one seems to be used by "content restricted" videos?
    'vfl_ymO4Z' . "\t" .
    '7272B1BA35548BA3939F9CE39C4E72A98BB78ABB28.' .		# 86
    '560A7424D42FF070C115935232F8BDB8A1F3E05C05C' =>
@@ -903,8 +943,14 @@ sub scrape_youtube_url($$$$$) {
 
   my $info_url = ("http://www.youtube.com/get_video_info?video_id=$id" .
                   "&el=vevo");	# Needed for VEVO, works on non-VEVO.
+  # Maybe these instead of Vevo?
+  # '&el=detailpage' .
+  # '&ps=default' .
+  # '&eurl=' .
+  # '&gl=US' .
+  # '&hl=en'
 
-  my ($kind, $urlmap, $body, $fmtlist, $cipherp);
+  my ($kind, $urlmap, $body, $fmtlist, $rental);
 
   my $retries = 5;
   my $err = undef;
@@ -925,7 +971,7 @@ sub scrape_youtube_url($$$$$) {
 
     ($fmtlist) = ($body =~ m@&fmt_list=([^&]+)@si);
     ($title)   = ($body =~ m@&title=([^&]+)@si) unless $title;
-    $cipherp   = ($body =~ m@&use_cipher_signature=True@si);
+    ($rental)  = ($body =~ m@&ypc_video_rental_bar_text=([^&]+)@si);
 
     last if ($urlmap && $title);
 
@@ -940,9 +986,16 @@ sub scrape_youtube_url($$$$$) {
     sleep (1);
   }
 
+  $err = "can't download rental videos"
+    if (!$err && !$urlmap && $rental);
+
   error ("$progname: $id: $err")
     if $err;
 
+  # The "use_cipher_signature" parameter is as lie: it is sometimes true
+  # even when the signatures are not enciphered.  The only way to tell
+  # is if the URLs in the map contain "s=" instead of "sig=".
+  #
   # If the urlmap from get_video_info has an enciphered signature,
   # we have no way of knowing what cipher is in use!  So in that case
   # we need to scrape the HTML, since from there we can pull the
@@ -955,7 +1008,7 @@ sub scrape_youtube_url($$$$$) {
   # HTML doesn't contain the url_map.  The url_map is in get_video_info,
   # but those signatures don't work.
 
-  if (!$urlmap || $cipherp) {
+  if (!$urlmap) {
     # If we couldn't get a URL map out of the info URL, try harder.
 
     if ($body =~ m/private[+\s]video/si) {  # scraping won't work.
@@ -972,8 +1025,7 @@ sub scrape_youtube_url($$$$$) {
       $err = " (\"$err\")";
     }
 
-    my $e2 = ($cipherp ? "signature is enciphered" : "no fmt_url_map");
-    print STDERR "$progname: $id: $e2$err.  Scraping HTML...\n"
+    print STDERR "$progname: $id: no fmt_url_map$err.  Scraping HTML...\n"
       if ($verbose > 1);
 
     return scrape_youtube_url_html ($url, $id, $size_p, $force_fmt, $err);
@@ -986,7 +1038,7 @@ sub scrape_youtube_url($$$$$) {
   errorI ("$id: no title in $info_url") unless $title;
   $title = url_unquote($title);
 
-  my $cipher = undef; # signature is not enciphered
+  my $cipher = undef; # initially assume signature is not enciphered
   my $year   = undef; # no published date in get_video_info
   return scrape_youtube_url_2 ($id, $urlmap, $fmtlist, $cipher, $title, $year,
                                $size_p, $force_fmt);
@@ -1058,10 +1110,10 @@ sub scrape_youtube_url_html($$$$$) {
   if (! $args) {
     # Try to find a better error message
     my (undef, $err) = ($body =~ m@<( div | h1 ) \s+
-                                    ( ?: id | class ) = 
-                                   "( ?: error-box |
-                                         yt-alert-content |
-                                         unavailable-message )"
+                                    (?: id | class ) = 
+                                   "(?: error-box |
+                                        yt-alert-content |
+                                        unavailable-message )"
                                    [^<>]* > \s* 
                                    ( [^<>]+? ) \s*
                                    </ \1 > @six);
@@ -1087,13 +1139,28 @@ sub scrape_youtube_url_html($$$$$) {
         $err = "$err ($title)";
       }
 
+      if ($verbose == 0 && $err =~ m/available in your country/i) {
+        # With --quiet, just silently ignore country-locked video failures,
+        # for "youtubefeed".
+        exit (0);
+      }
+
       error ("$id: $err");
     }
   }
 
-  # Check this late, so that we get better error messages, above:
-  # Youtube returns HTTP 404 pages that have real messages in them.
-  #
+  if ($verbose == 0 && $oerror =~ m/available in your country/i) {
+    # With --quiet, just silently ignore country-locked video failures,
+    # for "youtubefeed".
+    # (Need to test twice because sometimes we have $args but no fmt_url_map)
+    exit (0);
+  }
+
+  # Sometimes Youtube returns HTTP 404 pages that have real messages in them,
+  # so we have to check the HTTP status late. But sometimes it doesn't return
+  # 404 for pages that no longer exist. Hooray.
+
+  $http = 'HTTP/1.0 404' if ($oerror && $oerror =~ m/has been removed/);
   error ("$id: $http$oerror") unless (check_http_status ($url, $http, 0));
 
   errorI ("$id: no ytplayer.config$oerror") unless $args;
@@ -1150,13 +1217,13 @@ sub scrape_youtube_url_2($$$$$$$$$) {
   foreach (split (/,/, $urlmap)) {
     # Format used to be: "N|url,N|url,N|url"
     # Now it is: "url=...&quality=hd720&fallback_host=...&type=...&itag=N"
-    my ($k, $v, $e, $sig);
+    my ($k, $v, $e, $sig, $sig2);
     if (m/^\d+\|/s) {
       ($k, $v) = m/^(.*?)\|(.*)$/s;
     } elsif (m/^[a-z][a-z\d_]*=/s) {
 
-      ($sig) = m/\bsig=([^&]+)/s;		# sig= when un-ciphered.
-      ($sig) = m/\bs=([^&]+)/s unless $sig;	# s= when enciphered.
+      ($sig)  = m/\bsig=([^&]+)/s;	# sig= when un-ciphered.
+      ($sig2) = m/\bs=([^&]+)/s;	# s= when enciphered.
 
       ($k) = m/\bitag=(\d+)/s;
       ($v) = m/\burl=([^&]+)/s;
@@ -1178,7 +1245,7 @@ sub scrape_youtube_url_2($$$$$$$$$) {
 
     $urlmap{$k} = $v;
     $urlct{$k}  = $ct;
-    $urlsig{$k} = $sig;
+    $urlsig{$k} = [ $sig2 ? 1 : 0, $sig || $sig2 ];
 
     push @urlmap, $k;
     print STDERR "\t\t$k $s\t$v$e\n" if ($verbose > 3);
@@ -1186,11 +1253,13 @@ sub scrape_youtube_url_2($$$$$$$$$) {
 
   print STDERR "\n" if ($verbose > 3);
 
+
+  # If we're doing all formats, iterate them here now that we know which
+  # ones are available. This ends up parsing things multiple times.
+  #
   if (defined($force_fmt) && $force_fmt eq 'all') {
     foreach my $fmt (sort { $a <=> $b } @urlmap) {
       my $url = "http://www.youtube.com/v/$id";
-      my $sig = $urlsig{$fmt};
-      $url = apply_signature ($id, $fmt, $url, $cipher, $sig);
       my $x = $fmt . "/" . $urlct{$fmt};
       $append_suffix_p = $x;
       download_video_url ($url, $title, $year,
@@ -1337,8 +1406,23 @@ sub scrape_youtube_url_2($$$$$$$$$) {
   ($w, $h) = ();  # Turns out these are full of lies.
 
 
+  # If the signature is enciphered, we need to scrape HTML instead, to
+  # get the cipher algorithm.
+
+  my $sig = $urlsig{$fmt};
+  if ($sig->[0]) {  # enciphered
+    if (! $cipher) {
+      print STDERR "$progname: $id: enciphered. Scraping HTML...\n"
+        if ($verbose > 1);
+      $url = 'http://www.youtube.com/watch?v=' . $id;
+      return scrape_youtube_url_html ($url, $id, $size_p, $force_fmt, '');
+    }
+  }
+
   # Now that we have chosen a URL, make sure it has a signature.
-  $url = apply_signature ($id, $fmt, $url, $cipher, $urlsig{$fmt});
+  $url = apply_signature ($id, $fmt, $url, 
+                          $sig->[0] ? $cipher : undef,
+                          $sig->[1]);
 
 
   # We need to do a HEAD on the video URL to find its size in bytes,
@@ -1457,8 +1541,8 @@ sub scrape_vimeo_private($$) {
   # it is one that doesn't work!  We need the one from the main HTML page.
   # Also note that User-Agent must be the same on both this URL and the
   # play_redirect URL: it seems to be part of what the signature signs.
-  #
-  $url = "http://vimeo.com/$id";
+  #  $url = "http://vimeo.com/$id";
+  # No longer true? Instead, look at the URL inside "files" which has sig.
 
   my ($http, $head, $body) = get_url ($url, $referer);
   if (! check_http_status ($url, $http, 0)) {
@@ -1468,7 +1552,9 @@ sub scrape_vimeo_private($$) {
   my ($title) = ($body =~ m@<title>\s*([^<>]+?)\s*</title>@si);
   my ($sig)   = ($body  =~ m@"signature":"([a-fA-F\d]+)"@s);
   my ($time)  = ($body  =~ m@"timestamp":"?(\d+)"?@s);
-  my ($files) = ($body  =~ m@"files":{(.*?)}@s);
+  my ($files) = ($body  =~ m@("hd":{.*?})@s);
+     ($files) = ($body  =~ m@("sd":{.*?})@s) unless $files;
+     ($files) = ($body  =~ m@"files":{(.*?)\]}@s) unless $files;
 
   errorI ("$id: vimeo HTML unparsable") unless ($sig && $time && $files);
 
@@ -1484,6 +1570,10 @@ sub scrape_vimeo_private($$) {
           '&time='    . $time .
           '&sig='     . $sig .
           '&type=html5_desktop_local');
+
+  # Hmm, let's just try to use this one directly.
+  # Sometimes the "sd" and "mobile" entries work but "hd" doesn't, WTF.
+  $url = $1 if ($files =~ m@"url":"([^\"]+)"@s);
 
   my $ct = ($codec =~ m@mov@si  ? 'video/quicktime' :
             $codec =~ m@flv@si  ? 'video/flv' :
@@ -1561,6 +1651,9 @@ sub munge_title($) {
 # $title =~ s/\b([[:alpha:]])([[:alnum:]\']+)\b/$1\L$2/gsi   # capitalize words
 #   if ($title !~ m/[[:lower:]]/s);                    # if it's all upper case
 
+
+  $title =~ s/ \(\)//gs;
+  $title =~ s/ \[\]//gs;
 
   # Don't allow the title to begin with "." or it writes a hidden file.
   $title =~ s/^([.,\s])/_$1/gs;
@@ -1680,8 +1773,7 @@ sub download_video_url($$$$$$$) {
   # "/...#NNNNN" => "/NNNNN"
   $url =~ s@^(https?://([a-z]+\.)?vimeo\.com/)[^\d].*\#(\d+)$@$1$3@s;
 
-  # No https.
-  $url =~ s@^https:@http:@s;
+  $url =~ s@^https:@http:@s;	# No https.
 
   my ($id, $site, $playlist_p);
 
@@ -1700,7 +1792,7 @@ sub download_video_url($$$$$$$) {
 
   # Youtube /watch?v= or /watch#!v= or /v/ URLs. 
   } elsif ($url =~ m@^https?:// (?:[a-z]+\.)?
-                     (youtube) (?:-nocookie)? (?:\.googleapis)? \.com/
+                     (youtube) (?:-nocookie)? (?:\.googleapis)? \.com/+
                      (?: (?: watch )? (?: \? | \#! ) v= |
                          v/ |
                          embed/ |
@@ -1713,7 +1805,7 @@ sub download_video_url($$$$$$$) {
 
   # Youtube "/verify_age" URLs.
   } elsif ($url =~ 
-           m@^https?://(?:[a-z]+\.)?(youtube) (?:-nocookie)? \.com/
+           m@^https?://(?:[a-z]+\.)?(youtube) (?:-nocookie)? \.com/+
 	     .* next_url=([^&]+)@sx ||
            $url =~ m@^https?://(?:[a-z]+\.)?google\.com/
                      .* service = (youtube)
@@ -2080,7 +2172,7 @@ sub main() {
     if ($expect);
 
   if ($guessp) {
-    guess_cipher (undef, $guessp > 1);
+    guess_cipher (undef, $guessp - 1);
     exit (0);
   }
 

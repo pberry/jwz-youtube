@@ -34,7 +34,7 @@ use Date::Parse;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my $version = q{ $Revision: 1.3 $ }; $version =~ s/^[^\d]+([\d.]+).*/$1/;
+my $version = q{ $Revision: 1.9 $ }; $version =~ s/^[^\d]+([\d.]+).*/$1/;
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -57,6 +57,8 @@ sub scan_feed($$) {
   if ($url =~ m@youtube\.com/user/([^/?&]+)@si) {
     $url = ('http://gdata.youtube.com/feeds/base/users/' . $1 .
             '/uploads?v=2&alt=rss');
+  } elsif ($url =~ m@vimeo.com/(album/([^/?&]+))@si) {
+    $url = 'http://vimeo.com/' . $1 . '/rss';
   } elsif ($url =~ m@vimeo.com/((channels/)?([^/?&]+))@si) {
     $url = 'http://vimeo.com/' . $1 . '/videos/rss';
   }
@@ -120,6 +122,23 @@ sub scan_feed($$) {
       }
     }
 
+    # promonews.tv doesn't include the videos in their RSS feed!
+    # Pull it from the web site instead.
+    #
+    if ($url =~ m/promonews/s) {
+      print STDERR "$progname: reading $link\n" if ($verbose > 1);
+
+      $count = 0;
+      while (1) {
+        $html = LWP::Simple::get ($link);
+        last if ($html);
+        last if (++$count > $retries);
+        print STDERR "$progname: $link failed, retrying...\n"
+          if ($verbose > 2);
+        sleep (1 + $count);
+      }
+    }
+
     $date = str2time ($date || '') || time();
     my $age = (time() - $date) / (60 * 60 * 24);
     my $old_p = ($age > $max_days);
@@ -165,10 +184,27 @@ sub scan_feed($$) {
                      )@six) &&
              ($u =~ m/youtube/si
               ? $u =~ m@ watch\? | /v/ | /embed/ @six
-              : $u =~ m@ vimeo\.com/ .* /\d{6,} @six))) {
+              : $u =~ m@ vimeo\.com/ ( .+ / )? \d{6,} @six))) {
         print STDERR "$progname:     skipping $u\n" if ($verbose > 2);
         next;
       }
+
+      $u =~ s@\#.*$@@s;
+
+      # Map /channel/foo/NNN to /NNN
+      $u =~ s@^http:// [^/]* \b vimeo\.com / (.+/)? (\d{6,}) .* $
+             @http://vimeo.com/$2@six;
+
+      # Map /embed/XXX to /XXX
+      $u =~ s@^http:// [^/]* \b youtube\.com / [a-z]+/ ([^?&;,]+) .* $
+             @http://www.youtube.com/watch?v=$1@six;
+
+      # Simplify v=XXX
+      $u =~ s@^http:// [^/]* \b youtube\.com .* v= ([^?&;,]+) .* $
+             @http://www.youtube.com/watch?v=$1@six;
+
+      $u =~ s@^https:@http:@gs;
+
       next if ($dups{$u});
       $dups{$u} = 1;
       $total++;
@@ -204,6 +240,9 @@ sub download_url($) {
   push @cmd, "-" . ("v" x ($verbose - 3)) if ($verbose > 3);
   push @cmd, "--size" if ($debug_p);
   push @cmd, $url;
+
+  print STDERR "$progname: exec: " . join(" ", @cmd) . "\n"
+    if ($verbose > 1 || $debug_p);
 
   system (@cmd);
 
