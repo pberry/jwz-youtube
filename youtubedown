@@ -47,7 +47,7 @@ use Socket;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my $version = q{ $Revision: 1.245 $ }; $version =~ s/^[^0-9]+([0-9.]+).*$/$1/;
+my $version = q{ $Revision: 1.252 $ }; $version =~ s/^[^0-9]+([0-9.]+).*$/$1/;
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -616,6 +616,11 @@ my %ciphers = (
   'vfljOFtAt' => 'r s3 r s1 r w69 r',               # 07 Nov 2013
   'vflqSl9GX' => 'w32 r s2 w65 w26 w45 w24 w40 s2', # 14 Nov 2013
   'vflFrKymJ' => 'w32 r s2 w65 w26 w45 w24 w40 s2', # 15 Nov 2013
+  'vflKz4WoM' => 'w50 w17 r w7 w65',                # 19 Nov 2013
+  'vflhdWW8S' => 's2 w55 w10 s3 w57 r w25 w41',     # 21 Nov 2013
+  'vfl66X2C5' => 'r s2 w34 s2 w39',                 # 26 Nov 2013
+  'vflCXG8Sm' => 'r s2 w34 s2 w39',                 # 02 Dec 2013
+  'vfl_3Uag6' => 'w3 w7 r s2 w27 s2 w42 r',         # 04 Dec 2013
 );
 
 sub decipher_sig($$$) {
@@ -1185,7 +1190,12 @@ sub scrape_youtube_url_html($$$$$) {
     unless $urlmap;
   ($kind, $urlmap) = ($args =~ m@"(url_encoded_fmt_stream_map)": "(.*?)"@s)
     unless $urlmap;			   # New nonsense seen in Aug 2011
-  errorI ("$id: no fmt_url_map$oerror") unless $urlmap;
+  if (! $urlmap) {
+    if ($body =~ m/This video has been age-restricted/s) {
+      error ("$id: enciphered but age-restricted$oerror");
+    }
+    errorI ("$id: no fmt_url_map$oerror");
+  }
   print STDERR "$progname: $id: found $kind in HTML\n"
     if ($kind && $verbose > 1);
 
@@ -1249,6 +1259,9 @@ sub scrape_youtube_url_2($$$$$$$$$) {
       $e = "\t$q, $t" if ($q && $t);
       $e = url_unquote($e) if ($e);
     }
+
+    error ("$id: RTMPE DRM: not supported")
+      if (!$v && $urlmap =~ m/rtmpe(=|%3D)yes/s);	# Well, fuck.
 
     errorI ("$id: unparsable urlmap entry: no itag: $_") unless ($k);
     errorI ("$id: unparsable urlmap entry: no url: $_")  unless ($v);
@@ -1581,6 +1594,7 @@ sub scrape_vimeo_private($$) {
 
   my ($http, $head, $body) = get_url ($url, $referer);
   if (! check_http_status ($url, $http, 0)) {
+    exit (1) if ($verbose <= 0); # Skip silently if --quiet.
     errorI ("$id: $http: scraping private video failed");
   }
 
