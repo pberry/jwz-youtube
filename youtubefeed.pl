@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright © 2013 Jamie Zawinski <jwz@jwz.org>
+# Copyright © 2013-2014 Jamie Zawinski <jwz@jwz.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -34,7 +34,7 @@ use Date::Parse;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my $version = q{ $Revision: 1.9 $ }; $version =~ s/^[^\d]+([\d.]+).*/$1/;
+my $version = q{ $Revision: 1.10 $ }; $version =~ s/^[^\d]+([\d.]+).*/$1/;
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -105,6 +105,7 @@ sub scan_feed($$) {
        ($html) = m@<description\b[^<>]*>\s*(.*?)</description@s unless ($html);
     $html = '' unless $html;
 
+    $title = '' unless $title;
     $title =~ s@<!\[CDATA\[\s*(.*?)\s*\]*>*\s*(</title>\s*)?$@$1@gs;
 
     $html =~ s@<!\[CDATA\[\s*(.*)\s*\]\]>@$1@gs;
@@ -290,8 +291,11 @@ sub pull_feeds($) {
   #
   my $hist_fd;
   open ($hist_fd, '+>>', $hist)	|| error ("writing $hist: $!");
-  flock ($hist_fd, LOCK_EX)	|| error ("locking $hist: $!");
+# flock ($hist_fd, LOCK_EX)	|| error ("locking $hist: $!");
+  flock ($hist_fd, LOCK_EX | LOCK_NB) || error ("already locked: $hist");
   seek ($hist_fd, 0, 0)         || error ("rewinding $hist: $!");
+  print STDERR "$progname: locked $hist\n"
+    if ($verbose > 1);
 
   my @hist;
   while (<$hist_fd>) {
@@ -364,6 +368,8 @@ sub pull_feeds($) {
   #
   flock ($hist_fd, LOCK_UN) || error ("unlocking $hist: $!");
   close ($hist_fd);
+  print STDERR "$progname: unlocked $hist\n"
+    if ($verbose > 1);
 
   print STDERR "$progname: wrote " . scalar(@hist) . " URLs to $hist\n"
     if ($verbose == 1);
