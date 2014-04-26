@@ -47,7 +47,7 @@ use Socket;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my $version = q{ $Revision: 1.306 $ }; $version =~ s/^[^0-9]+([0-9.]+).*$/$1/;
+my ($version) = ('$Revision: 1.309 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -464,7 +464,9 @@ sub video_file_size($) {
   # Don't let it run for more than N CPU-seconds.
   my $limit = "ulimit -t 10";
 
-  $file =~ s/"/\\"/gs;
+   my $size = (stat($file))[7];
+
+  $file =~ s/(["`\$])/\\$1/gs;
   my $cmd = "mplayer -identify -frames 0 -vc null -vo null -ao null \"$file\"";
 
   $cmd = "$limit; $cmd";
@@ -500,7 +502,6 @@ sub video_file_size($) {
     }
   }
 
-  my $size = (stat($file))[7];
   return ($w, $h, $size);
 }
 
@@ -669,6 +670,7 @@ my %ciphers = (
   'en_US-vflS6PgfC' => 'w40 s2 w40 r w56 w26 r s2', # 10 Apr 2014
   'en_US-vfl6Q1v_C' => 'w23 r s2 w55 s2',           # 15 Apr 2014
   'en_US-vflMYwWq8' => 'w51 w32 r s1 r s3',         # 17 Apr 2014
+  'en_US-vflGC4r8Z' => 'w17 w34 w66 s3',            # 24 Apr 2014
 );
 
 sub decipher_sig($$$) {
@@ -1183,7 +1185,8 @@ sub scrape_youtube_url_html($$$$$) {
   my $blocked_re = join ('|',
                          ('(available|blocked it) in your country',
                           'copyright (claim|grounds)',
-                          'removed by the user'));
+                          'removed by the user',
+                          'is not available'));
 
   if (! $args) {
     # Try to find a better error message
@@ -1792,8 +1795,8 @@ sub cgi_output($$$$$$$) {
   $size = -1 unless defined($size);
 
   my $ss = ($size <= 0        ? '<SPAN CLASS="err">size unknown</SPAN>' :
-            $size > 1024*1024 ? sprintf ("%dM", $size/(1024*1024)) :
-            $size > 1024      ? sprintf ("%dK", $size/1024) :
+            $size > 1024*1024 ? sprintf ("%.0fM", $size/(1024*1024)) :
+            $size > 1024      ? sprintf ("%.0fK", $size/1024) :
             "$size bytes");
   my $wh = ($w && $h ? "$w &times; $h" : "resolution unknown");
   $wh = '<SPAN CLASS="err">' . $wh . '</SPAN>'
@@ -2038,8 +2041,8 @@ sub download_video_url($$$$$$$) {
     # for "--fmt all"
     my $ii = $id . ($size_p eq '1' || $size_p eq '2' ? '' : ":$size_p");
 
-    my $ss = ($size > 1024*1024 ? sprintf ("%dM", $size/(1024*1024)) :
-              $size > 1024 ? sprintf ("%dK", $size/1024) :
+    my $ss = ($size > 1024*1024 ? sprintf ("%.0fM", $size/(1024*1024)) :
+              $size > 1024 ? sprintf ("%.0fK", $size/1024) :
               "$size bytes");
 
     print STDOUT "$ii\t${w} x ${h}\t$ss\t$title\n";
@@ -2078,8 +2081,8 @@ sub download_video_url($$$$$$$) {
       ($w, $h, $size) = video_file_size ($file);
 
       $size = -1 unless $size;
-      my $ss = ($size > 1024*1024 ? sprintf ("%dM", $size/(1024*1024)) :
-                $size > 1024 ? sprintf ("%dK", $size/1024) :
+      my $ss = ($size > 1024*1024 ? sprintf ("%.0fM", $size/(1024*1024)) :
+                $size > 1024 ? sprintf ("%.0fK", $size/1024) :
                 "$size bytes");
       $ss .= ", $w x $h" if ($w && $h);
       print STDERR "$progname: wrote       \"$file\", $ss\n";
