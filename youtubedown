@@ -47,7 +47,7 @@ use Socket;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.309 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.319 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -671,6 +671,16 @@ my %ciphers = (
   'en_US-vfl6Q1v_C' => 'w23 r s2 w55 s2',           # 15 Apr 2014
   'en_US-vflMYwWq8' => 'w51 w32 r s1 r s3',         # 17 Apr 2014
   'en_US-vflGC4r8Z' => 'w17 w34 w66 s3',            # 24 Apr 2014
+  'en_US-vflyEvP6v' => 's1 r w26',                  # 29 Apr 2014
+  'en_US-vflm397e5' => 's1 r w26',                  # 01 May 2014
+  'en_US-vfldK8353' => 'r s3 w32',                  # 03 May 2014
+  'en_US-vflPTD6yH' => 'w59 s1 w66 s3 w10 r w55 w70 s1',# 06 May 2014
+  'en_US-vfl7KJl0G' => 'w59 s1 w66 s3 w10 r w55 w70 s1',# 07 May 2014
+  'en_US-vflhUwbGZ' => 'w49 r w60 s2 w61 s3',       # 12 May 2014
+  'en_US-vflzEDYyE' => 'w49 r w60 s2 w61 s3',       # 13 May 2014
+  'en_US-vflimfEzR' => 'r s2 w68 w28',              # 15 May 2014
+  'en_US-vfl_nbW1R' => 'r w8 r s3',                 # 20 May 2014
+  'en_US-vfll7obaF' => 'w48 w17 s2',                # 22 May 2014
 );
 
 sub decipher_sig($$$) {
