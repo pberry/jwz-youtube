@@ -30,11 +30,12 @@ use Fcntl;
 use Fcntl ':flock'; # import LOCK_* constants
 use LWP::Simple;
 use Date::Parse;
+use HTML::Entities;
 
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my $version = q{ $Revision: 1.10 $ }; $version =~ s/^[^\d]+([\d.]+).*/$1/;
+my ($version) = ('$Revision: 1.12 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -44,6 +45,14 @@ my $youtubedown = 'youtubedown';
 my $max_urls = 25;	# Don't download more than N from a feed at once.
 my $max_days = 2;	# Ignore any RSS entry more than N days old.
 my $max_hist = 10000;	# Remember only this many total downloaded URLs.
+
+
+# Convert any HTML entities to Unicode characters.
+#
+sub html_unquote($) {
+  my ($s) = @_;
+  return HTML::Entities::decode_entities ($s);
+}
 
 
 # Returns the list of video URLs in the given feed.
@@ -82,6 +91,8 @@ sub scan_feed($$) {
     sleep (1 + $count);
   }
 
+  utf8::decode ($body);  # Pack multi-byte UTF-8 back into wide chars.
+
   $body =~ s/[\r\n]/ /gsi;
   $body =~ s/(<(entry|item)\b)/\n$1/gsi;
   my @items = split("\n", $body);
@@ -89,6 +100,7 @@ sub scan_feed($$) {
   my $head = shift @items || '';
 
   my ($ftitle) = ($head =~ m@<title\b[^<>]*>([^<>]*)@s);
+  $ftitle = html_unquote ($ftitle) if $ftitle;
   $ftitle = $url unless $ftitle;
 
 
@@ -113,15 +125,15 @@ sub scan_feed($$) {
     $html = "$link\n$html" if $link;
     $html = "$guid\n$html" if $guid;
 
-    for (my $i = 0; $i < 3; $i++) {
-      foreach ($html, $title) {
-        s@&lt;@<@gs;
-        s@&gt;@>@gs;
-        s@&quot;@"@gs;
-        s@&apos;@'@gs;
-        s@&amp;@&@gs;
-      }
-    }
+    $html  = html_unquote($html);  # RSS to HTML
+    $title = html_unquote($title); # RSS to HTML
+
+    $title = html_unquote($title); # HTML to Unicrud
+    # Don't convert $html, we still need to parse it.
+
+    $title =~ s/ \\[ux] { ([a-z0-9]+)   } / chr(hex($1)) /gsexi;  # \u{XXXXXX}
+    $title =~ s/ \\[ux]   ([a-z0-9]{4})   / chr(hex($1)) /gsexi;  # \uXXXX
+
 
     # promonews.tv doesn't include the videos in their RSS feed!
     # Pull it from the web site instead.
@@ -132,7 +144,11 @@ sub scan_feed($$) {
       $count = 0;
       while (1) {
         $html = LWP::Simple::get ($link);
-        last if ($html);
+        if ($html) {
+          $html =~ s/[\r\n]/ /gsi;
+          utf8::decode ($html);  # Pack multi-byte UTF-8 back into wide chars.
+          last;
+        }
         last if (++$count > $retries);
         print STDERR "$progname: $link failed, retrying...\n"
           if ($verbose > 2);
@@ -169,6 +185,7 @@ sub scan_feed($$) {
 
     foreach my $u (@urls) {
 
+      $u =~ s/\\//gs;
       $u =~ s@youtu\.be/@youtube.com/v/@gsi;
       $u =~ s@&feature=[^&?]+@@gsi;
 
@@ -209,8 +226,20 @@ sub scan_feed($$) {
       next if ($dups{$u});
       $dups{$u} = 1;
       $total++;
-      next if ($old_p || $kill_p);
-      push @all_urls, $u;
+
+      if ($old_p || $kill_p) {
+        if ($verbose > 1) {
+          if ($kill_p) {
+            print STDERR "$progname:     killfile \"$u\"\n";
+          } else {
+            print STDERR "$progname:     skipping \"$u\"" .
+                         " (" . int($age) . " days old)\n";
+          }
+        }
+        next;
+      }
+
+      push @all_urls, [ $u, $title ];
       print STDERR "$progname:     found $u\n" if ($verbose > 1);
     }
   }
@@ -233,13 +262,14 @@ sub scan_feed($$) {
 # Download the URL into the current directory.
 # Returns 1 if successful, 0 otherwise.
 #
-sub download_url($) {
-  my ($url) = @_;
+sub download_url($$) {
+  my ($url, $title) = @_;
 
   my @cmd = ($youtubedown, "--suffix");
   push @cmd, "--quiet" if ($verbose == 0);
   push @cmd, "-" . ("v" x ($verbose - 3)) if ($verbose > 3);
   push @cmd, "--size" if ($debug_p);
+  push @cmd, ("--title", $title) if $title;
   push @cmd, $url;
 
   print STDERR "$progname: exec: " . join(" ", @cmd) . "\n"
@@ -331,17 +361,19 @@ sub pull_feeds($) {
 
     my ($ftitle, $ftotal, @urls) = scan_feed ($feed, $kill_re);
     my @new_urls = ();
-    foreach my $url (@urls) {
+    foreach my $P (@urls) {
+      my ($url, $utitle) = @$P;
       next if ($hist{$url});
       $hist{$url} = 1;
-      push @new_urls, $url;
+      push @new_urls, $P;
     }
     print STDERR "$progname: found " . scalar(@new_urls) . " new of " .
                  "$ftotal URLs in \"$ftitle\"\n"
       if ($verbose);
 
-    foreach my $url (@new_urls) {
-      next unless download_url ($url);
+    foreach my $P (@new_urls) {
+      my ($url, $utitle) = @$P;
+      next unless download_url ($url, $utitle);
       next if $debug_p;
 
       unshift @hist, $url;  # put it on the front
