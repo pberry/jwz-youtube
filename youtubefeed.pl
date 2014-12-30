@@ -35,7 +35,7 @@ use HTML::Entities;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.12 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.13 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -222,6 +222,8 @@ sub scan_feed($$) {
              @http://www.youtube.com/watch?v=$1@six;
 
       $u =~ s@^https:@http:@gs;
+
+      next if ($u =~ m/videoseries/s);
 
       next if ($dups{$u});
       $dups{$u} = 1;
