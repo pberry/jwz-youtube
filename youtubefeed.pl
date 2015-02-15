@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright © 2013-2014 Jamie Zawinski <jwz@jwz.org>
+# Copyright © 2013-2015 Jamie Zawinski <jwz@jwz.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -35,15 +35,15 @@ use HTML::Entities;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.13 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.19 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
 
 my $youtubedown = 'youtubedown';
 
-my $max_urls = 25;	# Don't download more than N from a feed at once.
-my $max_days = 2;	# Ignore any RSS entry more than N days old.
+my $max_urls = 100;	# Don't download more than N from a feed at once.
+my $max_days = 16;	# Ignore any RSS entry more than N days old.
 my $max_hist = 10000;	# Remember only this many total downloaded URLs.
 
 
@@ -93,6 +93,8 @@ sub scan_feed($$) {
 
   utf8::decode ($body);  # Pack multi-byte UTF-8 back into wide chars.
 
+  error ("looks like HTML: $url") if ($body =~ m/<HEAD\b/si);
+
   $body =~ s/[\r\n]/ /gsi;
   $body =~ s/(<(entry|item)\b)/\n$1/gsi;
   my @items = split("\n", $body);
@@ -133,6 +135,8 @@ sub scan_feed($$) {
 
     $title =~ s/ \\[ux] { ([a-z0-9]+)   } / chr(hex($1)) /gsexi;  # \u{XXXXXX}
     $title =~ s/ \\[ux]   ([a-z0-9]{4})   / chr(hex($1)) /gsexi;  # \uXXXX
+
+    $title =~ s/\xA0/ /gs;  # &nbsp;
 
 
     # promonews.tv doesn't include the videos in their RSS feed!
@@ -255,7 +259,13 @@ sub scan_feed($$) {
 
   print STDERR "\n" if ($verbose > 1);
 
-  @all_urls = @all_urls[0 .. $max_urls-1] if (@all_urls > $max_urls);
+  if (@all_urls > $max_urls) {
+    my $n = @all_urls - $max_urls;
+    print STDERR "$progname: discarding $n URLs from $url (" .
+      $all_urls[$max_urls][1] . ")\n"
+      if ($verbose);
+    @all_urls = @all_urls[0 .. $max_urls-1];
+  }
 
   return ($ftitle, $total, @all_urls);
 }
@@ -267,7 +277,7 @@ sub scan_feed($$) {
 sub download_url($$) {
   my ($url, $title) = @_;
 
-  my @cmd = ($youtubedown, "--suffix");
+  my @cmd = ($youtubedown, "--suffix", "--mux");
   push @cmd, "--quiet" if ($verbose == 0);
   push @cmd, "-" . ("v" x ($verbose - 3)) if ($verbose > 3);
   push @cmd, "--size" if ($debug_p);
