@@ -20,6 +20,8 @@
 #			of the feed entry, not the title of the video.
 #   Feeds/.state	Where the list of already-downloaded URLs is written.
 #
+# The .feeds file can also contain the URLs of Youtube users.
+#
 # Created: 29-Jul-2013.
 
 require 5;
@@ -31,20 +33,26 @@ use Fcntl ':flock'; # import LOCK_* constants
 use LWP::Simple;
 use Date::Parse;
 use HTML::Entities;
+use IPC::Open2;
 
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.19 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.28 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
 
 my $youtubedown = 'youtubedown';
+my $youtube_api = 'youtube-api.pl';
+my $youtube_api_user = $ENV{USER};
+
+$youtube_api_user = 'yesthatjwz' if ($youtube_api_user eq 'jwz'); # blargh
+
 
 my $max_urls = 100;	# Don't download more than N from a feed at once.
 my $max_days = 16;	# Ignore any RSS entry more than N days old.
-my $max_hist = 10000;	# Remember only this many total downloaded URLs.
+my $max_hist = 30000;	# Remember only this many total downloaded URLs.
 
 
 # Convert any HTML entities to Unicode characters.
@@ -52,6 +60,117 @@ my $max_hist = 10000;	# Remember only this many total downloaded URLs.
 sub html_unquote($) {
   my ($s) = @_;
   return HTML::Entities::decode_entities ($s);
+}
+
+
+# Duplicated in youtubedown.
+#
+sub canonical_url($) {
+  my ($url) = @_;
+
+  # Forgive pinheaddery.
+  $url =~ s@&amp;@&@gs;
+  $url =~ s@&amp;@&@gs;
+
+  # Add missing "http:"
+  $url = "http://$url" unless ($url =~ m@^https?://@si);
+
+  # Rewrite youtu.be URL shortener.
+  $url =~ s@^https?://([a-z]+\.)?youtu\.be/@http://youtube.com/v/@si;
+
+  # Rewrite Vimeo URLs so that we get a page with the proper video title:
+  # "/...#NNNNN" => "/NNNNN"
+  $url =~ s@^(https?://([a-z]+\.)?vimeo\.com/)[^\d].*\#(\d+)$@$1$3@s;
+
+  $url =~ s@^https:@http:@s;	# No https.
+
+  my ($id, $site, $playlist_p);
+
+  # Youtube /view_play_list?p= or /p/ URLs. 
+  if ($url =~ m@^https?://(?:[a-z]+\.)?(youtube) (?:-nocookie)? \.com/
+                (?: view_play_list\?p= |
+                    p/ |
+                    embed/p/ |
+                    playlist\?list=(?:PL)? |
+                    watch\?list=(?:PL)? |
+                    embed/videoseries\?list=(?:PL)?
+                )
+                ([^<>?&,]+) ($|&) @sx) {
+    ($site, $id) = ($1, $2);
+    $url = "http://www.$site.com/view_play_list?p=$id";
+    $playlist_p = 1;
+
+  # Youtube "/verify_age" URLs.
+  } elsif ($url =~ 
+           m@^https?://(?:[a-z]+\.)?(youtube) (?:-nocookie)? \.com/+
+	     .* next_url=([^&]+)@sx ||
+           $url =~ m@^https?://(?:[a-z]+\.)?google\.com/
+                     .* service = (youtube)
+                     .* continue = ( http%3A [^?&]+)@sx ||
+           $url =~ m@^https?://(?:[a-z]+\.)?google\.com/
+                     .* service = (youtube)
+                     .* next = ( [^?&]+)@sx
+          ) {
+    $site = $1;
+    $url = url_unquote($2);
+    if ($url =~ m@&next=([^&]+)@s) {
+      $url = url_unquote($1);
+      $url =~ s@&.*$@@s;
+    }
+    $url = "http://www.$site.com$url" if ($url =~ m@^/@s);
+
+  # Youtube /watch/?v= or /watch#!v= or /v/ URLs. 
+  } elsif ($url =~ m@^https?:// (?:[a-z]+\.)?
+                     (youtube) (?:-nocookie)? (?:\.googleapis)? \.com/+
+                     (?: (?: watch/? )? (?: \? | \#! ) v= |
+                         v/ |
+                         embed/ |
+                         .*? &v= |
+                         [^/\#?&]+ \#p(?: /[a-zA-Z\d] )* /
+                     )
+                     ([^<>?&,\'\"]+) ($|[?&]) @sx) {
+    ($site, $id) = ($1, $2);
+    $url = "http://www.$site.com/watch?v=$id";
+
+  # Youtube "/user" and "/profile" URLs.
+  } elsif ($url =~ m@^https?://(?:[a-z]+\.)?(youtube) (?:-nocookie)? \.com/
+                     (?:user|profile).*\#.*/([^&/]+)@sx) {
+    $site = $1;
+    $id = url_unquote($2);
+    $url = "http://www.$site.com/watch?v=$id";
+    error ("unparsable user next_url: $url") unless $id;
+
+  # Vimeo /NNNNNN URLs
+  # and player.vimeo.com/video/NNNNNN
+  # and vimeo.com/m/NNNNNN
+  } elsif ($url =~ 
+           m@^https?://(?:[a-z]+\.)?(vimeo)\.com/(?:video/|m/)?(\d+)@s) {
+    ($site, $id) = ($1, $2);
+    $url = "http://www.$site.com/$id";
+
+  # Vimeo /videos/NNNNNN URLs.
+  } elsif ($url =~ m@^https?://(?:[a-z]+\.)?(vimeo)\.com/.*/videos/(\d+)@s) {
+    ($site, $id) = ($1, $2);
+    $url = "http://www.$site.com/$id";
+
+  # Vimeo /channels/name/NNNNNN URLs.
+  # Vimeo /ondemand/name/NNNNNN URLs.
+  } elsif ($url =~ 
+           m@^https?://(?:[a-z]+\.)?(vimeo)\.com/[^/]+/[^/]+/(\d+)@s) {
+    ($site, $id) = ($1, $2);
+    $url = "http://www.$site.com/$id";
+
+  # Vimeo /moogaloop.swf?clip_id=NNNNN
+  } elsif ($url =~ m@^https?://(?:[a-z]+\.)?(vimeo)\.com/.*clip_id=(\d+)@s) {
+    ($site, $id) = ($1, $2);
+    $url = "http://www.$site.com/$id";
+
+  } else {
+    return ();
+    error ("unparsable URL: $url");
+  }
+
+  return ($url, $id, $site);
 }
 
 
@@ -63,12 +182,26 @@ sub scan_feed($$) {
 
   # Rewrite Youtube and Vimeo channel URLs to the RSS version.
   #
-  if ($url =~ m@youtube\.com/user/([^/?&]+)@si) {
-    $url = ('http://gdata.youtube.com/feeds/base/users/' . $1 .
-            '/uploads?v=2&alt=rss');
+  if ($url =~ m@youtube\.com/(user|channel)/([^/?&]+)(:?/([^/?&]+))?@si) {
+    #
+    # This used to work, but the v2 API was turned off in Apr 2015,
+    # so now we have to do it the hard way.
+    #
+    #   $url = ('http://gdata.youtube.com/feeds/base/users/' . $1 .
+    #          '/uploads?v=2&alt=rss');
+    #
+    my ($kind, $uid, $list) = ($1, $2);
+
+    # Oh hey, this undocumented thing works on uploads -- but for how long?
+    if (($list || 'uploads') eq 'uploads') {
+      $url = ('https://www.youtube.com/feeds/videos.xml?' .
+              ($kind eq 'user' ? 'user' : 'channel_id') . '=' . $uid);
+    } else {
+      return scan_youtube_user_feed ($uid, $url);
+    }
   } elsif ($url =~ m@vimeo.com/(album/([^/?&]+))@si) {
     $url = 'http://vimeo.com/' . $1 . '/rss';
-  } elsif ($url =~ m@vimeo.com/((channels/)?([^/?&]+))@si) {
+  } elsif ($url =~ m@vimeo.com/(((channels|groups)/)?([^/?&]+))@si) {
     $url = 'http://vimeo.com/' . $1 . '/videos/rss';
   }
 
@@ -111,12 +244,17 @@ sub scan_feed($$) {
   my $total = 0;
   foreach (@items) {
     my ($title) = m@<title\b[^<>]*>([^<>]*)@s;
-    my ($link) = m@<link\b[^<>]*>([^<>]*)@s;
+    my ($link) = m@<link\b[^<>]*>\s*([^<>]*)@s;
+       ($link) = m@<link\b[^<>]*href=[\"\']?([^<>\"\"]+)@si unless $link;
+       ($link) = m@<media:content\b[^<>]*url=[\"\']?([^<>\"\"]+)@si
+         unless $link;
     my ($guid) = m@<guid\b[^<>]*>([^<>]*)@s;
     my ($date) = m@<pubDate\b[^<>]*>([^<>]*)@s;
+       ($date) = m@<published\b[^<>]*>([^<>]*)@s unless ($date);
     my ($html) = m@<content\b[^<>]*>\s*(.*?)</content@s;
        ($html) = m@<summary\b[^<>]*>\s*(.*?)</summary@s unless ($html);
        ($html) = m@<description\b[^<>]*>\s*(.*?)</description@s unless ($html);
+       ($html) = m@<media:description\b[^<>]*>\s*(.*?)</media@s unless ($html);
     $html = '' unless $html;
 
     $title = '' unless $title;
@@ -188,46 +326,12 @@ sub scan_feed($$) {
     $html =~ s!\b(https?:[^\'\"\s<>]+)!{push @urls, $1; $1;}!gxse;
 
     foreach my $u (@urls) {
-
-      $u =~ s/\\//gs;
-      $u =~ s@youtu\.be/@youtube.com/v/@gsi;
-      $u =~ s@&feature=[^&?]+@@gsi;
-
-      # Only grab the URLs that youtubedown recognizes.
-      # This regexp is duplicated over there.
-      #
-      if (! (($u =~ m@^(https?://)?
-                      ([a-z]+\.)?
-                      ( youtube(-nocookie)?\.com/ |
-                      youtu\.be/ |
-                      vimeo\.com/ |
-                      google\.com/ .* service=youtube |
-                      youtube\.googleapis\.com
-                     )@six) &&
-             ($u =~ m/youtube/si
-              ? $u =~ m@ watch\? | /v/ | /embed/ @six
-              : $u =~ m@ vimeo\.com/ ( .+ / )? \d{6,} @six))) {
-        print STDERR "$progname:     skipping $u\n" if ($verbose > 2);
-        next;
-      }
-
       $u =~ s@\#.*$@@s;
-
-      # Map /channel/foo/NNN to /NNN
-      $u =~ s@^http:// [^/]* \b vimeo\.com / (.+/)? (\d{6,}) .* $
-             @http://vimeo.com/$2@six;
-
-      # Map /embed/XXX to /XXX
-      $u =~ s@^http:// [^/]* \b youtube\.com / [a-z]+/ ([^?&;,]+) .* $
-             @http://www.youtube.com/watch?v=$1@six;
-
-      # Simplify v=XXX
-      $u =~ s@^http:// [^/]* \b youtube\.com .* v= ([^?&;,]+) .* $
-             @http://www.youtube.com/watch?v=$1@six;
-
-      $u =~ s@^https:@http:@gs;
+      ($u, undef, undef) = canonical_url ($u);
+      next unless $u;
 
       next if ($u =~ m/videoseries/s);
+      next if ($u =~ m/view_play_list/s);
 
       next if ($dups{$u});
       $dups{$u} = 1;
@@ -250,7 +354,7 @@ sub scan_feed($$) {
     }
   }
 
-  if ($total == 0 && $verbose > 2) {
+  if ($total == 0) {  # && $verbose > 2
     $_ = join("\n", @items);
     $_ =~ s/</\n</gs;
     $_ =~ s@\n</@</@gs;
@@ -271,17 +375,62 @@ sub scan_feed($$) {
 }
 
 
+sub scan_youtube_user_feed($$) {
+  my ($uid, $url) = @_;
+  my @cmd = ($youtube_api, $youtube_api_user, '--list', $url);
+  my ($in, $out);
+  print STDERR "$progname: exec: " . join(' ', @cmd) . "\n" if ($verbose);
+  my $pid = open2 ($out, $in, @cmd);
+  close ($in);
+  my @lines = <$out>;
+  waitpid ($pid, 0);
+
+  error ("$youtube_api: no output") unless @lines;
+
+  my $pl_url = shift @lines;
+  my @all_urls = ();
+
+  foreach my $line (@lines) {
+    my ($id, $vtitle) = ($line =~ m/^(.*?)\t(.*?)\n?$/s);
+    my $vurl = 'http://www.youtube.com/watch?v=' . $id;
+    ($vurl, undef, undef) = canonical_url ($vurl);
+    push @all_urls, [ $vurl, $vtitle ];
+    print STDERR "$progname:     found $vurl\n" if ($verbose > 1);
+  }
+
+  my $total = @all_urls;
+
+  if ($total == 0 && $verbose > 2) {
+    print STDERR "$progname: WARNING: no URLs on $url\n";
+  }
+
+  if (@all_urls > $max_urls) {
+    my $n = @all_urls - $max_urls;
+    print STDERR "$progname: discarding $n URLs from $url (" .
+      $all_urls[$max_urls][1] . ")\n"
+      if ($verbose);
+    @all_urls = @all_urls[0 .. $max_urls-1];
+  }
+
+  return ($uid, $total, @all_urls);
+}
+
+
 # Download the URL into the current directory.
 # Returns 1 if successful, 0 otherwise.
 #
-sub download_url($$) {
-  my ($url, $title) = @_;
+sub download_url($$$) {
+  my ($url, $title, $ftitle) = @_;
 
-  my @cmd = ($youtubedown, "--suffix", "--mux");
+  utf8::encode ($title);  # Unpack wide chars to multi-byte UTF-8
+  $ftitle .= ':' if $ftitle;
+
+  my @cmd = ($youtubedown, "--suffix");
   push @cmd, "--quiet" if ($verbose == 0);
   push @cmd, "-" . ("v" x ($verbose - 3)) if ($verbose > 3);
   push @cmd, "--size" if ($debug_p);
-  push @cmd, ("--title", $title) if $title;
+  push @cmd, ("--prefix", $ftitle) if $ftitle;
+# push @cmd, ("--title", $title) if $title;
   push @cmd, $url;
 
   print STDERR "$progname: exec: " . join(" ", @cmd) . "\n"
@@ -375,7 +524,7 @@ sub pull_feeds($) {
     my @new_urls = ();
     foreach my $P (@urls) {
       my ($url, $utitle) = @$P;
-      next if ($hist{$url});
+      next if ($debug_p < 2 && $hist{$url});
       $hist{$url} = 1;
       push @new_urls, $P;
     }
@@ -383,9 +532,38 @@ sub pull_feeds($) {
                  "$ftotal URLs in \"$ftitle\"\n"
       if ($verbose);
 
+    # Try to find a sane prefix for the downloaded file, to show where it
+    # came from.
+    #
+    my $ftitle2;
+    if ($feed =~ m@(?:channels|groups|user|vimeo\.com)/([^/]+)/?$@si) {
+      $ftitle2 = $1;
+    } elsif ($ftitle =~ m/^Uploads by (.*)$/si) {
+      $ftitle2 = $1;
+    } elsif ($ftitle =~ m@^Videos matching: (.*)$@si) {
+      $ftitle2 = $1;
+    } elsif ($ftitle =~ m@^Vimeo / (.*)$@si) {
+      $ftitle2 = $1;
+    } elsif ($feed =~ m@^https?://[^.]+\.([^./]+)\.@si && 
+             $1 !~ m/jwz|tumblr|feedburner|blogspot/si) {
+      $ftitle2 = $1;
+    } else {
+      $ftitle2 = $ftitle;
+    }
+    $ftitle2 =~ s@'s videos$@@si;
+    $ftitle2 =~ s@^.* \| @@si;
+    $ftitle2 = undef if ($ftitle2 =~ m/^http/si);
+
+
     foreach my $P (@new_urls) {
       my ($url, $utitle) = @$P;
-      next unless download_url ($url, $utitle);
+      my $ftitle3 = $ftitle2;
+
+      #### Kludge for titles of the dnalounge "calendar videos" feed.
+      $ftitle3 = "$ftitle2 $1"
+        if ($utitle && $utitle =~ m/^DNA Lounge: ([a-z]{3} \d\d?) /si);
+
+      next unless download_url ($url, $utitle, $ftitle3);
       next if $debug_p;
 
       unshift @hist, $url;  # put it on the front
