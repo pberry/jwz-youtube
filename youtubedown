@@ -64,7 +64,7 @@ use HTML::Entities;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.622 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.665 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -284,6 +284,9 @@ sub get_url_1($;$$$$) {
                                 PeerPort => $port,
                                 Proto    => 'tcp',
                                 Type     => SOCK_STREAM,
+                                # Ignore certificate errors
+                                verify_hostname => 0,
+                                SSL_verify_mode => 0
                                 );
   }
   error ("connect: $host:$port: $!") unless $S;
@@ -829,7 +832,8 @@ sub video_url_size($$;$) {
 #
 # The implementation of this cipher used by the Youtube HTML5 video
 # player lives in a Javascript file with a name like:
-#   http://s.ytimg.com/yts/jsbin/html5player-VERSION.js
+#         http://s.ytimg.com/yts/jsbin/html5player-VERSION.js
+#   or    http://s.ytimg.com/yts/jsbin/player-VERSION/base.js
 # where VERSION changes periodically.  Sometimes the algorithm in the
 # Javascript changes, also.  So we name each algorithm according to
 # the VERSION string, and dispatch off of that.  Each time Youtube
@@ -1165,6 +1169,42 @@ my %ciphers = (
   'new-en_US-vflyM0pli/html5player-new' => '16696 w55 w69 w61 s2 r',# 29 Sep 2015
   'new-en_US-vflJLt_ns/html5player-new' => '16708 w19 s2 r s2 w48 r s2 r',# 30 Sep 2015
   'new-en_US-vflqLE6s6/html5player-new' => '16708 w19 s2 r s2 w48 r s2 r',# 02 Oct 2015
+  'new-en_US-vflzRMCkZ/html5player-new' => '16711 r s3 r s2 w62 w25 s1 r',# 04 Oct 2015
+  'new-en_US-vflIUNjzZ/html5player-new' => '16711 r s3 r s2 w62 w25 s1 r',# 08 Oct 2015
+  'new-en_US-vflOw5Ej1/html5player-new' => '16711 r s3 r s2 w62 w25 s1 r',# 08 Oct 2015
+  'new-en_US-vflq2mOFv/html5player-new' => '16714 r w37 r w19 r s3 r w5',# 12 Oct 2015
+  'new-en_US-vfl8AWn6F/html5player-new' => '16714 r w37 r w19 r s3 r w5',# 13 Oct 2015
+  'new-en_US-vflEA2BSM/html5player-new' => '16714 r w37 r w19 r s3 r w5',# 14 Oct 2015
+  'new-en_US-vflt2Xpp6/html5player-new' => '16717 r s1 w14',      # 15 Oct 2015
+  'new-en_US-vflDpriqR/html5player-new' => '16714 r w37 r w19 r s3 r w5',# 15 Oct 2015
+  'new-en_US-vflptVjJB/html5player-new' => '16723 s2 r s3 w54 w60 w55 w65',# 21 Oct 2015
+  'new-en_US-vflmR8A04/html5player-new' => '16725 w28 s2 r',      # 23 Oct 2015
+  'new-en_US-vflx6L8FI/html5player-new' => '16735 r s2 r w65 w1 s1',# 27 Oct 2015
+  'new-en_US-vflYZP7XE/html5player-new' => '16734 s1 r s1 w56 w46 s2 r',# 27 Oct 2015
+  'new-en_US-vflQZZsER/html5player-new' => '16734 s1 r s1 w56 w46 s2 r',# 29 Oct 2015
+  'new-en_US-vflsLAYSi/html5player-new' => '16734 s1 r s1 w56 w46 s2 r',# 29 Oct 2015
+  'new-en_US-vflZWDr6u/html5player-new' => '16734 s1 r s1 w56 w46 s2 r',# 02 Nov 2015
+  'new-en_US-vflJoRj2J/html5player-new' => '16742 w69 w47 r s1 r s1 r w43 s2',# 03 Nov 2015
+  'new-en_US-vflFSFCN-/html5player-new' => '16734 s1 r s1 w56 w46 s2 r',# 04 Nov 2015
+  'new-en_US-vfl6mEKMp/html5player-new' => '16734 s1 r s1 w56 w46 s2 r',# 05 Nov 2015
+ 'player-en_US-vflJENbn4/base' => '16748 s1 w31 r',              # 12 Nov 2015
+   'player-en_US-vfltBCT02/base' => '16756 r s2 r w18 w62 w45 s1', # 17 Nov 2015
+  'player-en_US-vfl0w9xAB/base' => '16756 r s2 r w18 w62 w45 s1', # 17 Nov 2015
+  'player-en_US-vflCIicNM/base' => '16759 w2 s3 r w38 w21 w58',   # 20 Nov 2015
+  'player-en_US-vflUpjAy9/base' => '16758 w26 s3 r s3 r s3 w61 s3 r',# 23 Nov 2015
+  'player-en_US-vflFEzfy7/base' => '16758 w26 s3 r s3 r s3 w61 s3 r',# 24 Nov 2015
+  'player-en_US-vfl_RJZIW/base' => '16770 w3 w2 s3 w39 s2 r s2',  # 01 Dec 2015
+  'player-en_US-vfln_PDe6/base' => '16770 w3 w2 s3 w39 s2 r s2',  # 03 Dec 2015
+  'player-en_US-vflx9OkTA/base' => '16772 s2 w50 r w15 w66 s3',   # 07 Dec 2015
+  'player-en_US-vflPRjCOu/base' => '16776 r s1 r w31 s1',         # 08 Dec 2015
+  'player-en_US-vflOIF62G/base' => '16776 r s1 r w31 s1',         # 10 Dec 2015
+  'player-en_US-vfl2sXoyn/base' => '16777 w13 r s3 w2 r s3 w36',  # 10 Dec 2015
+  'player-en_US-vflF6iOW5/base' => '16777 w13 r s3 w2 r s3 w36',  # 11 Dec 2015
+  'player-en_US-vfl_a6AWr/base' => '16777 w13 r s3 w2 r s3 w36',  # 14 Dec 2015
+  'player-en_US-vflpPblA7/base' => '16777 w13 r s3 w2 r s3 w36',  # 15 Dec 2015
+  'player-en_US-vflktcH0f/base' => '16777 w13 r s3 w2 r s3 w36',  # 16 Dec 2015
+  'player-en_US-vflXJM_5_/base' => '16777 w13 r s3 w2 r s3 w36',  # 17 Dec 2015
+  'player-en_US-vflrSqbyh/base' => '16777 w13 r s3 w2 r s3 w36',  # 20 Dec 2015
 );
 
 
@@ -1233,22 +1273,31 @@ sub guess_cipher(;$$) {
   if (! $cipher_id) {
     ($http, $head, $body) = get_url ($url);		# Get home page
     check_http_status ('-', $url, $http, 2);
-    # Get random video -- pick one towards the end, because sometimes
+
+    my @vids = ();
+    $body =~ s%/watch\?v=([^\"\'<>]+)%{
+      push @vids, $1;
+      '';
+    }%gsex;
+
+    errorI ("no  videos found on home page $url") unless @vids;
+
+    # Get random video -- pick one towards the middle, because sometimes
     # the early ones are rental videos.
-    ($id) = ($body =~ m@.*/watch\?v=([^\"\'/<>]+)@si);
-    errorI ("no  videos found on home page $url") unless $id;
+    my $id = @vids[int(@vids / 2)];
     $url .= "/watch\?v=$id";
 
     ($http, $head, $body) = get_url ($url);	# Get random video's info
     check_http_status ($id, $url, $http, 2);
 
     $body =~ s/\\//gs;
-    ($cipher_id) = ($body =~ m@/jsbin\\?/html5player-(.+?)\.js@s);
-    errorI ("$id: unparsable cipher url: $url") unless $cipher_id;
+    ($cipher_id) = ($body =~ m@/jsbin\\?/((?:html5)?player-.+?)\.js@s);
+    errorI ("$id: unparsable cipher url: $url\n\nBody:\n\n$body")
+      unless $cipher_id;
   }
 
   $cipher_id =~ s@\\@@gs;
-  $url = "http://s.ytimg.com/yts/jsbin/html5player-$cipher_id.js";
+  $url = "http://s.ytimg.com/yts/jsbin/$cipher_id.js";
 
   ($http, $head, $body) = get_url ($url);
   check_http_status ($id, $url, $http, 2);
@@ -1279,8 +1328,15 @@ sub guess_cipher(;$$) {
   errorI ("$cipher_id: unparsable cipher js: $url") unless $fn;
 
   # Find body of function C(D) { ... }
+  # might be: var C = function(D) { ... }
+  # might be:   , C = function(D) { ... }
   my ($fn2) = ($body =~ m@\b function \s+ \Q$fn\E \s* \( $v \)
                           \s* { ( .*? ) } @sx);
+     ($fn2) = ($body =~ m@(?: \b var \s+ | , \s* )
+                          \Q$fn\E \s* = \s* function \s* \( $v \)
+                          \s* { ( .*? ) } @sx)
+       unless $fn2;
+
   errorI ("$cipher_id: unparsable fn \"$fn\"") unless $fn2;
 
   $fn = $fn2;
@@ -1760,7 +1816,7 @@ sub load_youtube_formats_html($$$) {
   print STDERR "$progname: $id: found $kind in HTML\n"
     if ($kind && $verbose > 1);
 
-  my ($cipher) = ($body =~ m@/jsbin\\?/html5player-(.+?)\.js@s);
+  my ($cipher) = ($body =~ m@/jsbin\\?/((?:html5)?player-.+?)\.js@s);
   $cipher =~ s@\\@@gs if $cipher;
 
   return ($title, $urlmap, $urlmap2, $cipher);
@@ -1875,6 +1931,11 @@ sub load_youtube_formats($$) {
   $err = "video is not embeddable"
     if ($err && (defined($embed_p) && !$embed_p));
 
+  if ($err && (defined($embed_p) && !$embed_p)) {
+    # Ignore the embed error and go on to HTML scraping.
+    $err = undef;
+  }
+
   $err = "can't download rental videos"
     if (!$err && !$urlmap && $rental);
 
@@ -1954,13 +2015,9 @@ sub load_youtube_formats($$) {
     # We couldn't get a URL map out of the info URL.
     # Scrape the HTML instead.
     #
-    #### Does this even happen any more, now that we use "sts"?
-    #
-    # Answer: yes, it happens at least for RTMPE -- but in that
-    # case we fail out anyway.  Does it happen any more in any
-    # *successful* case?  I don't know.
-
-    errorI("html scraping still happens");
+    # This still happens for non-embeddable videos, where get_video_info
+    # says status=fail with no formats data.  It also happens for RTMPE,
+    # but in that case we fail anyway.
 
     if ($body =~ m/private[+\s]video|video[+\s]is[+\s]private/si) {
       error ("$id: private video");  # scraping won't work.
@@ -2048,6 +2105,8 @@ sub load_vimeo_formats($$) {
   #   https://vimeo.com/209
   #     Yes, this is a real video.  No "h264" in "files" metadata,
   #     only .flv as "vp6".
+  #   http://www.vimeo.com/142574658
+  #     Only has "progressive" formats, not h264.  Downloads fine though.
 
   ($http, $head, $body) = get_url ($info_url, $referer);
 
@@ -2063,7 +2122,8 @@ sub load_vimeo_formats($$) {
   my ($title)  = ($body =~ m@   "title" : \s* " (.+?) " @six);
   my ($files0) = ($body =~ m@ { "h264"  : \s* \{ ( .+? \} ) \} , @six);
   my ($files1) = ($body =~ m@ { "vp6"   : \s* \{ ( .+? \} ) \} , @six);
-  my $files    = ($files0 || '') . ($files1 || '');
+  my ($files2) = ($body =~ m@   "progressive" : \s* \[ ( .+? \] ) \} @six);
+  my $files    = ($files0 || '') . ($files1 || '') . ($files2 || '');
 
   # Sometimes we get empty-ish data for "Private Video", but HTTP 200.
   $err = "No video info (Private?)"
@@ -2087,7 +2147,9 @@ sub load_vimeo_formats($$) {
     $fmts{title} = $title;
     my $i = 0;
     foreach my $f (split (/\},?\s*/, $files)) {
-      my ($fmt)  = ($f =~ m@^ " (.+?) ": @six);
+      next unless (length($f) > 50);
+      my ($fmt)  = ($f =~ m@^ \" (.+?) ": @six);
+         ($fmt)  = ($f =~ m@^ \{ "profile": (\d+) @six) unless $fmt;
       my ($url2) = ($f =~ m@ "url"    : \s* " (.*?) " @six);
       my ($w)    = ($f =~ m@ "width"  : \s*   (\d+)   @six);
       my ($h)    = ($f =~ m@ "height" : \s*   (\d+)   @six);
@@ -2369,6 +2431,8 @@ sub pick_download_format($$$$$) {
    249 => { v => undef,                        a => 'vor', abr =>  50   },
    250 => { v => undef,                        a => 'vor', abr =>  70   },
    251 => { v => undef,                        a => 'vor', abr => 160   },
+   256 => { v => undef,                        a => 'm4a', abr =>  97, c=>5.1},
+   258 => { v => undef,                        a => 'm4a', abr => 191, c=>5.1},
    264 => { v => 'mp4',  w => 2560, h => 1440, a => undef               },
    266 => { v => 'mp4',  w => 3840, h => 2160, a => undef               },
    271 => { v => 'webm', w => 2560, h => 1440, a => undef               },
@@ -2518,6 +2582,9 @@ sub pick_download_format($$$$$) {
   #   299 (1920 x 1080 mp4 v/o)
   #   308 (2560 x 1440 webm v/o)  <-- webm, not mp4
   #   315 (3840 x 2160 webm v/o)
+  #
+  #   http://www.youtube.com/watch?v=dC_nFgJAcuQ
+  #   2-Dec-2015: First sighting of 5.1 stereo formats 256 and 258.
 
 
   # Divide %known_formats into muxed, video-only and audio-only lists.
@@ -2528,12 +2595,14 @@ sub pick_download_format($$$$$) {
     my $v = $fmt->{v};
     my $a = $fmt->{a};
     my $b = $fmt->{abr};
+    my $c = $fmt->{c};   # channels (e.g. 5.1)
     my $w = $fmt->{w};
     my $h = $fmt->{h};
 
     $known_formats{$id}->{desc} = (($w && $h ? "$w x $h $v" :
                                     $b ? "$b kbps $a" :
                                     "???") .
+                                   ($c ? " $c" : '') .
                                    ($w && $h && $b ? '' :
                                     $w ? ' v/o' : ' a/o'));
 
@@ -2575,6 +2644,10 @@ sub pick_download_format($$$$$) {
 
       $aa = (($A->{v} || '') eq 'mp4');		# Prefer MP4 over WebM.
       $bb = (($B->{v} || '') eq 'mp4');
+      return ($bb - $aa) unless ($aa == $bb);
+
+      $aa = $A->{c} || 0;			# Prefer 5.1 over stereo.
+      $bb = $B->{c} || 0;
       return ($bb - $aa) unless ($aa == $bb);
 
       $aa = $A->{abr} || 0;			# Prefer higher audio rate.
@@ -2709,7 +2782,7 @@ sub pick_download_format($$$$$) {
       $mfmt = $force_fmt;
     }
     print STDERR "$progname: $id: $why $mfmt (" .
-                 $known_formats{$mfmt}->{desc} . ")\n"
+                 ($known_formats{$mfmt}->{desc} || '???') . ")\n"
       if ($verbose > 1);
 
     return ($mfmt);
@@ -3096,7 +3169,7 @@ sub cgi_output($$$@) {
   $wh3 = '<SPAN CLASS="err">' . $wh3 . '</SPAN>'
     if (($w3 || 0) < 1024);
   $ss3 = "$wh3, $ss3"
-    if $wh3;
+    if ($wh3 && $ss3);
 
   my $file = $video->{file};
   my $url  = $video->{url};

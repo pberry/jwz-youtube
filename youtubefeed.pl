@@ -38,7 +38,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.28 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.29 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -332,6 +332,9 @@ sub scan_feed($$) {
 
       next if ($u =~ m/videoseries/s);
       next if ($u =~ m/view_play_list/s);
+
+      # Youtube video with a bogus ID
+      next if ($u =~ m/watch\?v=([^?&]*)/s && length($1) < 11);
 
       next if ($dups{$u});
       $dups{$u} = 1;
