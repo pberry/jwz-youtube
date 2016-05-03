@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright © 2013-2015 Jamie Zawinski <jwz@jwz.org>
+# Copyright © 2013-2016 Jamie Zawinski <jwz@jwz.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -38,7 +38,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.29 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.32 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -422,14 +422,15 @@ sub scan_youtube_user_feed($$) {
 # Download the URL into the current directory.
 # Returns 1 if successful, 0 otherwise.
 #
-sub download_url($$$) {
-  my ($url, $title, $ftitle) = @_;
+sub download_url($$$$) {
+  my ($url, $title, $ftitle, $bwlimit) = @_;
 
   utf8::encode ($title);  # Unpack wide chars to multi-byte UTF-8
   $ftitle .= ':' if $ftitle;
 
   my @cmd = ($youtubedown, "--suffix");
   push @cmd, "--quiet" if ($verbose == 0);
+  push @cmd, ("--bwlimit", $bwlimit) if ($bwlimit);
   push @cmd, "-" . ("v" x ($verbose - 3)) if ($verbose > 3);
   push @cmd, "--size" if ($debug_p);
   push @cmd, ("--prefix", $ftitle) if $ftitle;
@@ -454,8 +455,8 @@ sub download_url($$$) {
 }
 
 
-sub pull_feeds($) {
-  my ($dir) = @_;
+sub pull_feeds($$) {
+  my ($dir, $bwlimit) = @_;
 
   binmode (STDOUT, ':utf8');   # video titles in messages
   binmode (STDERR, ':utf8');
@@ -485,11 +486,21 @@ sub pull_feeds($) {
   #
   my $hist_fd;
   open ($hist_fd, '+>>', $hist)	|| error ("writing $hist: $!");
-# flock ($hist_fd, LOCK_EX)	|| error ("locking $hist: $!");
-  flock ($hist_fd, LOCK_EX | LOCK_NB) || error ("already locked: $hist");
+  if (! flock ($hist_fd, LOCK_EX | LOCK_NB)) {
+    my $age = time() - (stat($hist_fd))[9];
+    if ($verbose == 0 && $age < 60 * 60 * 2) {
+      exit(1);  # If we haven't been locked that long, don't whine.
+    } else {
+      $age = sprintf("%d:%02d:%02d", $age/60/60, ($age/60)%60, $age%60);
+      error ("already locked for $age: $hist");
+    }
+  }
+
   seek ($hist_fd, 0, 0)         || error ("rewinding $hist: $!");
   print STDERR "$progname: locked $hist\n"
     if ($verbose > 1);
+
+  utime (undef, undef, $hist_fd);   # acquired lock, set file mtime to now
 
   my @hist;
   while (<$hist_fd>) {
@@ -566,7 +577,7 @@ sub pull_feeds($) {
       $ftitle3 = "$ftitle2 $1"
         if ($utitle && $utitle =~ m/^DNA Lounge: ([a-z]{3} \d\d?) /si);
 
-      next unless download_url ($url, $utitle, $ftitle3);
+      next unless download_url ($url, $utitle, $ftitle3, $bwlimit);
       next if $debug_p;
 
       unshift @hist, $url;  # put it on the front
@@ -614,18 +625,20 @@ sub usage() {
 
 sub main() {
   my $dir;
+  my $bwlimit;
   while ($#ARGV >= 0) {
     $_ = shift @ARGV;
     if (m/^--?verbose$/) { $verbose++; }
     elsif (m/^-v+$/) { $verbose += length($_)-1; }
     elsif (m/^--?debug$/) { $debug_p++; }
+    elsif (m/^--?bwlimit$/) { $bwlimit = shift @ARGV; }
     elsif (m/^-./) { usage; }
     elsif (!$dir) { $dir = $_; }
     else { usage; }
   }
 
   usage unless ($dir);
-  pull_feeds ($dir);
+  pull_feeds ($dir, $bwlimit);
 }
 
 main();

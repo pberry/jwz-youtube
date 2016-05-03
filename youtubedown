@@ -1,12 +1,12 @@
 #!/usr/bin/perl -w
-# Copyright © 2007-2015 Jamie Zawinski <jwz@jwz.org>
+# Copyright © 2007-2016 Jamie Zawinski <jwz@jwz.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
 # the above copyright notice appear in all copies and that both that
 # copyright notice and this permission notice appear in supporting
 # documentation.  No representations are made about the suitability of this
-# software for any purpose.  It is provided "as is" without express or 
+# software for any purpose.  It is provided "as is" without express or
 # implied warranty.
 #
 # Given a YouTube, Vimeo or Tumblr URL, downloads the corresponding MP4 file.
@@ -16,6 +16,7 @@
 #  --prefix "STRING" Prepend the title with this.
 #  --suffix          Append the video ID to each written file name.
 #  --progress        Show a textual progress bar for downloads.
+#  --bwlimit Nkbps   Throttle download speed.
 #
 #  --size            Instead of downloading it all, print video dimensions.
 #		     This requires "ffmpeg".
@@ -64,7 +65,7 @@ use HTML::Entities;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.665 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.743 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -96,14 +97,27 @@ my $html_head =
    " </HEAD>\n" .
    " <BODY>\n");
 my $html_tail = " </BODY>\n</HTML>\n";
-     
+
 
 # Anything placed on this list gets unconditionally deleted when this
 # script exits, even if abnormally.  This is how CGI-mode cleans up
 # after itself.
 #
-my @rm_r = ();
-END { unlink @rm_r if (@rm_r); }
+my @rm_f = ();
+END { unlink @rm_f if (@rm_f); }
+
+sub signal_cleanup($) {
+  my ($s) = @_;
+  print STDERR "$progname: SIG$s\n" if ($verbose > 1);
+  exit (1);  # This causes END{} to run.
+}
+
+$SIG{HUP}  = \&signal_cleanup;
+$SIG{INT}  = \&signal_cleanup;
+$SIG{QUIT} = \&signal_cleanup;
+$SIG{ABRT} = \&signal_cleanup;
+$SIG{KILL} = \&signal_cleanup;
+$SIG{TERM} = \&signal_cleanup;
 
 
 my $noerror = 0;
@@ -146,7 +160,7 @@ sub error($) {
 my $errorI = ("\n" .
               "\n\tPlease report this URL to jwz\@jwz.org!" .
               "\n\tBut make sure you have the latest version first:" .
-              "\n\thttp://www.jwz.org/hacks/#youtubedown" .
+              "\n\thttps://www.jwz.org/hacks/#youtubedown" .
               "\n");
 my $error_whiteboard = '';	# for signature diagnostics
 
@@ -199,7 +213,7 @@ sub fmt_size($) {
           "$size bytes");
 }
 
-sub fmt_bps($) {
+sub fmt_bps($) {   # bits per sec, not bytes
   my ($bps) = @_;
   return ($bps > 1024*1024 ? sprintf ("%.1f Mbps", $bps/(1024*1024)) :
           $bps > 1024      ? sprintf ("%.1f Kbps", $bps/1024) :
@@ -209,16 +223,17 @@ sub fmt_bps($) {
 
 my $progress_ticks = 0;
 my $progress_time = 0;
+my $progress_rubout = '';
+my $progress_last = 0;
 
-sub draw_progress($;$) {
-  my ($ratio, $cgi_p) = @_;
+sub draw_progress($;$$$) {
+  my ($ratio, $bps, $eof, $cgi_p) = @_;   # bits per sec, not bytes
 
-  my $cols = ($cgi_p ? 100 : 72);
+  my $cols = ($cgi_p ? 100 : 64);
   my $ticks = int($cols * $ratio);
+  my $cursep = !($verbose > 4) && (($ENV{TERM} || 'dumb') ne 'dumb');
 
   my $now = time();
-  my $eof = ($ratio == -1);
-  $ratio = 1 if $eof;
 
   return if ($progress_time == $now && !$eof);
 
@@ -232,29 +247,41 @@ sub draw_progress($;$) {
     return;
   }
 
-  if ($ticks > $progress_ticks) {
-    my $pct = sprintf("%3d%%", 100 * $ratio);
+  if ($now > $progress_last) {
+    $progress_last = $now;
+    my $pct = sprintf("%3d%% %s", 100 * $ratio, fmt_bps ($bps || 0));
     $pct =~ s/^  /. /s;
-    print STDERR "\b" x length($pct)			# erase previous pct
-      if ($progress_ticks > 0);
+    my $L = length($pct);
+    my $OL = length($progress_rubout);
+    print STDERR $progress_rubout if ($OL && $cursep);	# erase previous pct
+    $progress_rubout = "\b" x $L;
     while ($ticks > $progress_ticks) {
       print STDERR ".";
       $progress_ticks++;
     }
     print STDERR $pct;
+    my $L2 = $OL - $L;	# If the current pct is shorter, clear to EOL
+    print STDERR ((' ' x $L2) . ("\b" x $L2))
+      if ($L2 > 0 && $cursep);
+    print STDERR "\n" unless ($cursep);
   }
-  print STDERR "\r" . (' ' x ($cols + 4)) . "\r" if ($eof);	# erase line
+  print STDERR "\r" . (' ' x ($cols + 4)) . "\r"	# erase line
+    if ($eof && $cursep);
   $progress_time = $now;
-  $progress_ticks = 0 if ($eof);
+  $progress_ticks = 0 if ($eof || !$cursep);
+  $progress_rubout = '' if ($eof);
+  $progress_last = 0 if ($eof);
 }
 
 
 
-# Loads the given URL, returns: $http, $head, $body.
+# Loads the given URL, returns: $http, $head, $body,
+# $bytes_read, $content_length.
 #
-sub get_url_1($;$$$$) {
-  my ($url, $referer, $to_file, $max_bytes, $progress_p) = @_;
-  
+sub get_url_1($;$$$$$$) {
+  my ($url, $referer, $to_file, $bwlimit, $start_byte, $max_bytes,
+      $progress_p) = @_;
+
   error ("not an HTTP URL, try rtmpdump: $url") if ($url =~ m@^rtmp@i);
   error ("not an HTTP URL: $url") unless ($url =~ m@^(https?|feed)://@i);
 
@@ -264,56 +291,126 @@ sub get_url_1($;$$$$) {
 
   my $port = ($host =~ s@:([^:/]*)$@@gs ? $1 : undef);
 
+  $port = ($proto eq 'https:' ? 443 : 80) unless $port;
+
+  my $oport = $port;
   my $ohost = $host;
+
+  # If we were just using LWP::UserAgent, we wouldn't have to do all of this
+  # proxy crap (that library already handles it) but we use byte-ranges,
+  # don't always read a URL to completion, and want to display progress bars.
+  # LWP::UserAgent doesn't provide easily-usable APIs for that case, so, we
+  # hack the TCP connections more-or-less directly.
+
   if ($http_proxy) {
-    ($proto, undef, $host, undef) = split(m@/@, $http_proxy, 4);
-    $path = $url;
+    (undef, undef, $host, undef) = split(m@/@, $http_proxy, 4);
+    $port = ($host =~ s@:([^:/]*)$@@gs ? $1 : undef);
+
+    # RFC7230: Full url "absolute-form" works, but the "origin-form" of
+    # a path (e.g. "/foo.txt") hides proxy use when using SSL.
+    $path = $url unless ($proto eq 'https:');
   }
 
-  my $S;
-  if ($proto eq 'http:') {
-    $port = 80 unless $port;
-    $S = IO::Socket::INET->new (PeerAddr => $host,
-                                PeerPort => $port,
-                                Proto    => 'tcp',
-                                Type     => SOCK_STREAM,
+  # This is the connection to the proxy (if using one) or the target host.
+  #
+  my $S = IO::Socket::INET->new (PeerAddr => $host,
+                                 PeerPort => $port,
+                                 Proto    => 'tcp',
+                                 Type     => SOCK_STREAM,
                                 );
-  } else {
-    $port = 443 unless $port;
-    $S = IO::Socket::SSL->new  (PeerAddr => $host,
-                                PeerPort => $port,
-                                Proto    => 'tcp',
-                                Type     => SOCK_STREAM,
+  error ("connect: $host:$port: $!") unless $S;
+
+  # If we are loading https through a proxy, put the proxy into tunnel mode.
+  #
+  # Note: this fails if the proxy *itself* is on https.  In that case, we
+  # would need to bring up SSL on the connection to the proxy, then again
+  # on the interior CONNECT stream.
+  #
+  if ($http_proxy && $proto eq 'https:') {
+    my $hd = "CONNECT $ohost:$oport HTTP/1.0\r\n\r\n";
+    my @ha = split(/\r?\n/, $hd);
+
+    if ($verbose > 2) {
+      print STDERR "  proxy send P " . length($hd) ." bytes\n";
+      foreach (@ha) { print STDERR "  ==> $_\n"; }
+      print STDERR "  ==>\n";
+    }
+    print $S $hd;
+
+    my $bufsiz = 1024;
+    my $buf = '';
+    $hd = '';
+
+    while (! $hd) {
+      if ($buf =~ m/^(.*?)\r?\n\r?\n(.*)$/s) {
+        ($hd, $buf) = ($1, $2);
+        last;
+      }
+      my $buf2 = '';
+      my $size = sysread ($S, $buf2, $bufsiz);
+      print STDERR "  proxy read P $size bytes\n"
+        if (defined($size) && $verbose > 2);
+      last if (!defined($size) || $size <= 0);
+      $buf .= $buf2;
+    }
+    @ha = split (/\r?\n/, $hd);
+    if ($verbose > 2) {
+      foreach (@ha) { print STDERR "  <== $_\n"; }
+      print STDERR "  <==\n";
+    }
+    error ("HTTP proxy error: $ha[0]\n")
+      unless ($ha[0] =~ m@^HTTP/[0-9.]+ 20\d@si);
+  }
+
+  # Some proxies suck, expect bad behavior like sending a body
+  $S->flush() || error ("Could not flush proxy socket: $!");
+
+  # Now we have a stream to the target host (which may be proxied or direct).
+  # Put that stream into SSL mode if the target host is https.
+  #
+  if ($proto eq 'https:') {
+    IO::Socket::SSL->start_SSL ($S,
                                 # Ignore certificate errors
                                 verify_hostname => 0,
-                                SSL_verify_mode => 0
-                                );
+                                SSL_verify_mode => 0,
+                                SSL_verifycn_scheme => 'none',
+                                # set hostname for SNI
+                                SSL_hostname => $ohost,
+                               )
+        || error ("socket: SSL: $!");
   }
-  error ("connect: $host:$port: $!") unless $S;
 
   $S->autoflush(1);
 
   my $user_agent = "$progname/$version";
 
+  # Finally we are in straight HTTP land (but $path may be either "absolute"
+  # or "origin" form, as above.)
+  #
   my $hdrs = ("GET " . $path . " HTTP/1.0\r\n" .
               "Host: $ohost\r\n" .
               "User-Agent: $user_agent\r\n");
 
-  my $extra_headers = '';
-  $extra_headers .= "\nReferer: $referer" if ($referer);
+  my @extra_headers = ();
+  push @extra_headers, "Referer: $referer" if ($referer);
 
   # If we're only reading the first N bytes, don't ask for more.
-  $extra_headers .= "Range: bytes=0-" . ($max_bytes-1) . "\r\n"
-    if ($max_bytes);
-
-  if ($extra_headers) {
-    $extra_headers =~ s/\r\n/\n/gs;
-    $extra_headers =~ s/\r/\n/gs;
-    foreach (split (/\n/, $extra_headers)) {
-      $hdrs .= "$_\r\n" if $_;
-    }
+  #
+  if ($start_byte || $max_bytes) {
+    #
+    # 0-0 means return the first byte.
+    # 0-1 means return the first two bytes.
+    # 0-  is the same as 0-EOF.
+    # 1-  is the same as 1-EOF.
+    #
+    $start_byte = 0 unless defined ($start_byte);
+    my $end_byte = ($max_bytes
+                    ? $start_byte + $max_bytes - 1
+                    : "");
+    push @extra_headers, "Range: bytes=$start_byte-$end_byte";
   }
 
+  $hdrs .= join ("\r\n", @extra_headers, '') if (@extra_headers);
   $hdrs .= "\r\n";
 
   if ($verbose > 3) {
@@ -323,8 +420,13 @@ sub get_url_1($;$$$$) {
   }
   print $S $hdrs;
 
-  my $bufsiz = 10240;
+  # Using max SSL frame sized (16384) chunks improves performance by
+  # avoiding SSL frame splitting on sysread() of IO::Socket::SSL.
+  my $bufsiz = 16384;
   my $buf = '';
+
+  $bufsiz = int ($bwlimit / 8)
+    if ($bwlimit && int($bwlimit / 8) < $bufsiz);
 
   # Read network buffers until we have the HTTP response line.
   my $http = '';
@@ -372,43 +474,72 @@ sub get_url_1($;$$$$) {
   # Note that if we requested a byte range, this is the length of the range,
   # not the length of the full document.
   my ($cl) = ($head =~ m@^Content-Length: \s* (\d+) @mix);
-  $cl = $max_bytes if ($max_bytes && (!$cl || $max_bytes < $cl));
+
+  if ($start_byte) {
+    my ($s, $e, $cl2) = ($head =~ m@^Content-Range:
+                                    \s* bytes \s+
+                                    (\d+) \s* - \s*
+                                    (\d+) \s* / \s*
+                                    (\d+) \s* $@mix);
+    error ("attempting to resume download failed") unless defined($cl2);
+    error ("attempting to resume download failed: wrong start byte")
+      unless ($s == $start_byte);
+
+    # In byte-ranges mode, Content-Length is the length of the chunk being
+    # returned; the document content-length is in the Content-Range header.
+    $cl = $cl2;
+  }
+
+  $cl = $start_byte + $max_bytes
+    if ($cl && $max_bytes && $start_byte + $max_bytes < $cl);
 
   $progress_p = 0 if (($progress_p || '') ne 'cgi' && ($cl || 0) <= 0);
 
   my $out;
 
   if ($to_file) {
+
     # No, don't do this.
     # utf8::encode($to_file);   # Unpack wide chars into multi-byte UTF-8.
 
-    # Must be 2-arg open for ">-" when $outfile is '-'.
-    open ($out, ">$to_file") || error ("$to_file: $!");
-    binmode ($out);
-  }
+    if ($to_file eq '-') {
+      open ($out, ">-");
+      binmode ($out);
+    } elsif ($start_byte) {
+      open ($out, '>>:raw', $to_file) || error ("$to_file: $!");
+    } else {
+      open ($out, '>:raw',  $to_file) || error ("$to_file: $!");
+    }
 
-  # If we're proxying a download, also copy the document's headers.
-  #
-  if ($to_file && $to_file eq '-') {
+    # If we're proxying a download, also copy the document's headers.
+    #
+    if ($to_file eq '-') {
 
-    # Maybe if we nuke the Content-Type, that will stop Safari from
-    # opening the file by default.  Answer: nope.
-    #  $head =~ s@^(Content-Type:)[^\r\n]+@$1 application/octet-stream@gmi;
-    # Ok, maybe if we mark it as an attachment?  Answer: still nope.
-    #  $head = "Content-Disposition: attachment\r\n" . $head;
+      # Maybe if we nuke the Content-Type, that will stop Safari from
+      # opening the file by default.  Answer: nope.
+      #  $head =~ s@^(Content-Type:)[^\r\n]+@$1 application/octet-stream@gmi;
+      # Ok, maybe if we mark it as an attachment?  Answer: still nope.
+      #  $head = "Content-Disposition: attachment\r\n" . $head;
 
-    print $out $head . "\n\n";
+      print $out $head . "\n\n";
+    }
   }
 
   my $bytes = 0;
   my $body = '';
 
   my $cgi_p = ($progress_p && $progress_p eq 'cgi');
+  my $start_time = time();
+  my $actual_bits_per_sec = 0;
 
   while (1) {
     if ($buf eq '') {
+
       my $size = sysread ($S, $buf, $bufsiz);
-      print STDERR "  read C $size ($bytes)\n" if ($verbose > 5);
+
+      print STDERR "  read C " . ($size || 'undef') .
+                   " (" . ($start_byte + $bytes) . ")\n"
+        if ($verbose > 5);
       last if (!defined($size) || $size <= 0);
     }
 
@@ -421,15 +552,48 @@ sub get_url_1($;$$$$) {
     $bytes += length($buf);
     $buf = '';
 
-    draw_progress ($bytes / $cl, $cgi_p) if ($progress_p);
+    my $now = time();
+    my $elapsed = $now - $start_time;
+    $actual_bits_per_sec = $bytes * 8 / ($elapsed <= 0 ? 1 : $elapsed);
+
+    draw_progress (($start_byte + $bytes) / $cl,
+                   $actual_bits_per_sec, 0, $cgi_p)
+      if ($progress_p);
 
     # If we do a read while at EOF, sometimes Youtube hangs for ~30 seconds
     # before sending back the EOF, so just stop reading as soon as we have
     # reached the Content-Length or $max_bytes.
     #
-    last if ($cl && $bytes >= $cl);
+    if ($cl && $start_byte + $bytes >= $cl) {
+      print STDERR "  EOF (" . ($start_byte + $bytes) . " >= $cl)\n"
+        if ($verbose > 5);
+      last;
+    }
+
+    # If we're throttling our download speed, and we went over, hang back.
+    #
+    if ($bwlimit) {
+      my $tick = 0.1;
+      my $paused = 0;
+      while (1) {
+        last if ($actual_bits_per_sec <= $bwlimit);
+        select (undef, undef, undef, $tick);
+        $paused += $tick;
+        $now = time();
+        $elapsed = $now - $start_time;
+
+        #### It would be better for this to be measured over the last few
+        #### seconds, rather than measured from the beginning of the download,
+        #### so that a network drop doesn't cause it to try and "catch up".
+
+        $actual_bits_per_sec = $bytes * 8 / ($elapsed <= 0 ? 1 : $elapsed);
+        print STDERR "$progname: bwlimit: delay $paused\n" if ($verbose > 5);
+      }
+    }
   }
-  draw_progress (-1, $cgi_p) if ($progress_p);
+  draw_progress (($start_byte + $bytes) / $cl,
+                 $actual_bits_per_sec, 1, $cgi_p)
+    if ($progress_p);
 
   if ($to_file) {
     close $out || error ("$to_file: $!");
@@ -456,25 +620,69 @@ sub get_url_1($;$$$$) {
     error ("null response: $url");
   }
 
-  # Check to see if a network failure truncated the file.
-  # Maybe we should delete the file too?
+  # Check to see if a network failure truncated the file and warn.
+  # Caller will then resume the download using byte ranges.
   #
-  if ($to_file && $cl && $bytes < $cl-1) {
-    my $pct = int (100 * $bytes / $cl);
+  if ($to_file && 
+      $cl && 
+      $start_byte + $bytes < $cl-1) {
+    my $pct = int (100 * ($start_byte + $bytes) / $cl);
     $pct = sprintf ("%.2f", 100 * $bytes / $cl) if ($pct == 100);
-    unlink ($to_file);   # No way to resume partials, so just delete it.
-    error ("got only $pct% ($bytes instead of $cl) of \"$to_file\"");
+    print STDERR "$progname: got only $pct% (" .
+                 ($start_byte + $bytes) . " / $cl)" .
+                 " of \"$to_file\", resuming...\n"
+      if ($verbose);
   }
 
-  return ($http, $head, $body);
+  return ($http, $head, $body, $bytes, $cl);
+}
+
+
+# Loads the given URL, returns: $http, $head, $body.
+# If the connection dropped, try to resume it.
+#
+sub get_url_2($;$$$$$) {
+  my ($url, $referer, $to_file, $bwlimit, $max_bytes, $progress_p) = @_;
+
+  my $total_bytes = 0;
+  my $start_byte = 0;
+  my $max_errors = 10;
+  my $errors = 0;
+
+  while (1) {
+    my ($http, $head, $body, $bytes, $cl) =
+      get_url_1 ($url, $referer, $to_file, $bwlimit, $start_byte, $max_bytes,
+                 $progress_p);
+    $total_bytes += $bytes;
+    $max_bytes -= $bytes if defined($max_bytes);
+
+    if (!defined($cl) || $total_bytes >= $cl) {
+      return ($http, $head, $body);
+    }
+
+    $start_byte = $total_bytes;
+
+    # Avoid infinite loop: bail if we get 0 bytes back a few times in a row.
+    if ($bytes > 0) {
+      $errors = 0;
+    } else {
+      if ($errors++ >= $max_errors) {
+        unlink ($to_file) if $to_file;
+        error ("unable to resume download" .
+               ($to_file ? " of $to_file" : "") .
+               " (after $errors tries)");
+      }
+    }
+
+  }
 }
 
 
 # Loads the given URL, processes redirects.
 # Returns: $http, $head, $body, $final_redirected_url.
 #
-sub get_url($;$$$$) {
-  my ($url, $referer, $to_file, $max_bytes, $progress_p) = @_;
+sub get_url($;$$$$$) {
+  my ($url, $referer, $to_file, $bwlimit, $max_bytes, $progress_p) = @_;
 
   print STDERR "$progname: GET $url\n" if ($verbose > 2);
 
@@ -483,8 +691,8 @@ sub get_url($;$$$$) {
   my $max_redirects  = 20;
 
   do {
-    my ($http, $head, $body) = 
-      get_url_1 ($url, $referer, $to_file, $max_bytes, $progress_p);
+    my ($http, $head, $body) =
+      get_url_2 ($url, $referer, $to_file, $bwlimit, $max_bytes, $progress_p);
 
     $http =~ s/[\r\n]+$//s;
 
@@ -540,7 +748,7 @@ sub check_http_status($$$$) {
 sub video_file_size($) {
   my ($file) = @_;
 
-  # Sometimes ffmpeg gets stuck in a loop.  
+  # Sometimes ffmpeg gets stuck in a loop.
   # Don't let it run for more than N CPU-seconds.
   my $limit = "ulimit -t 10";
 
@@ -612,6 +820,11 @@ sub which($) {
 #
 #    xattr -px com.apple.metadata:kMDItemWhereFroms FILE |
 #      xxd -r -p | plutil -convert xml1 - -o -
+#
+# On Linux systems, freedesktop.org proposes "user.xdg.origin.url".
+# That's what "curl --xattr" does.  So we write that too.
+#
+#      xattr -p user.xdg.origin.url FILE
 #
 # Unfortunately, in CGI-mode, the file is actually being downloaded by
 # the browser itself, so the metadata URL that gets written is the
@@ -701,7 +914,8 @@ sub write_file_metadata_url($$$) {
 
     # Convert the data to hex, to shield nulls from xattr.
     #
-    foreach ($date_plist, $url_plist, $quarantine) {
+    my $hexurl = $url;
+    foreach ($date_plist, $url_plist, $quarantine, $hexurl) {
       s/(.)/{ sprintf("%02X ", ord($1)); }/gsex;
     }
 
@@ -710,7 +924,8 @@ sub write_file_metadata_url($$$) {
     error ("$file does not exist") unless (-f $file);
     foreach ([$url_plist,  'com.apple.metadata:kMDItemWhereFroms'],
              [$date_plist, 'com.apple.metadata:kMDItemDownloadedDate'],
-             [$quarantine, 'com.apple.quarantine']) {
+             [$quarantine, 'com.apple.quarantine'],
+             [$hexurl,     'user.xdg.origin.url']) {
       my ($val, $key) = @$_;
       my @cmd = ($xattr, "-w", "-x", $key, $val, $file);
       print STDERR "\n$progname: exec: '" . join("' '", @cmd) . "'\n"
@@ -784,14 +999,14 @@ sub write_file_metadata_url($$$) {
 # Downloads the first 380 KB of the URL, then runs ffmpeg to
 # find out the dimensions of the video.
 #
-sub video_url_size($$;$) {
-  my ($id, $url, $ct) = @_;
+sub video_url_size($$;$$) {
+  my ($id, $url, $ct, $bwlimit) = @_;
 
   my $tmp = $ENV{TMPDIR} || "/tmp";
   my $ext = content_type_ext ($ct || '');
   my $file = sprintf("$tmp/$progname-%08x.$ext", rand(0xFFFFFFFF));
   unlink $file;
-  push @rm_r, $file;
+  push @rm_f, $file;
 
   # Need a lot of data to get size from 1080p.
   #
@@ -803,7 +1018,7 @@ sub video_url_size($$;$) {
   #
   my $bytes = 910 * 1024;
 
-  my ($http, $head, $body) = get_url ($url, undef, $file, $bytes);
+  my ($http, $head, $body) = get_url ($url, undef, $file, $bwlimit, $bytes);
   check_http_status ($id, $url, $http, 2);  # internal error if still 403
 
      ($ct)   = ($head =~ m@^Content-Type:   \s* ( [^\s;]+ ) @mix);
@@ -824,7 +1039,7 @@ sub video_url_size($$;$) {
 
 
 # 24-Jun-2013: When use_cipher_signature=True, the signature must be
-# translated from lengths ranging from 82 to 88 back down to the 
+# translated from lengths ranging from 82 to 88 back down to the
 # original, unciphered length of 81 (40.40).
 #
 # This is not crypto or a hash, just a character-rearrangement cipher.
@@ -832,8 +1047,8 @@ sub video_url_size($$;$) {
 #
 # The implementation of this cipher used by the Youtube HTML5 video
 # player lives in a Javascript file with a name like:
-#         http://s.ytimg.com/yts/jsbin/html5player-VERSION.js
-#   or    http://s.ytimg.com/yts/jsbin/player-VERSION/base.js
+#         https://s.ytimg.com/yts/jsbin/html5player-VERSION.js
+#   or    https://s.ytimg.com/yts/jsbin/player-VERSION/base.js
 # where VERSION changes periodically.  Sometimes the algorithm in the
 # Javascript changes, also.  So we name each algorithm according to
 # the VERSION string, and dispatch off of that.  Each time Youtube
@@ -1205,6 +1420,63 @@ my %ciphers = (
   'player-en_US-vflktcH0f/base' => '16777 w13 r s3 w2 r s3 w36',  # 16 Dec 2015
   'player-en_US-vflXJM_5_/base' => '16777 w13 r s3 w2 r s3 w36',  # 17 Dec 2015
   'player-en_US-vflrSqbyh/base' => '16777 w13 r s3 w2 r s3 w36',  # 20 Dec 2015
+  'player-en_US-vflnrstgx/base' => '16777 w13 r s3 w2 r s3 w36',  # 22 Dec 2015
+  'player-en_US-vflbZPqYk/base' => '16804 r w50 w8 s2 w40 w64 s1',# 05 Jan 2016
+  'player-en_US-vfl2TFPXm/base' => '16804 r w50 w8 s2 w40 w64 s1',# 06 Jan 2016
+  'player-en_US-vflra1XvP/base' => '16806 s1 r w65 s3 r',         # 07 Jan 2016
+  'player-en_US-vfljksafM/base' => '16806 s1 r w65 s3 r',         # 11 Jan 2016
+  'player-en_US-vfl844Wcq/base' => '16806 s1 r w65 s3 r',         # 12 Jan 2016
+  'player-en_US-vflGR-A-c/base' => '16806 s1 r w65 s3 r',         # 14 Jan 2016
+  'player-en_US-vflIfVKII/base' => '16816 s2 w66 r',              # 19 Jan 2016
+  'player-en_US-vfl1SLb2X/base' => '16819 s3 r w29 s1 r s1 w54 r w48',# 20 Jan 2016
+  'player-en_US-vfl7CQfyl/base' => '16819 s3 r w29 s1 r s1 w54 r w48',# 22 Jan 2016
+  'player-en_US-vfl0zK-iw/base' => '16819 s3 r w29 s1 r s1 w54 r w48',# 22 Jan 2016
+  'player-en_US-vfl4ZhWmu/base' => '16825 w12 s1 w47 s2 r s1',    # 26 Jan 2016
+  'player-en_US-vflYjf147/base' => '16826 s1 r s2 r w50 r',       # 27 Jan 2016
+  'player-en_US-vfl66BZ3R/base' => '16826 s1 r s2 r w50 r',       # 28 Jan 2016
+  'player-en_US-vflpwz3pO/base' => '16828 w60 w36 w43 r',         # 01 Feb 2016
+  'player-en_US-vflwvK3-x/base' => '16832 r w67 w1 r s1 w17',     # 03 Feb 2016
+  'player-en_US-vfl93P520/base' => '16832 r w67 w1 r s1 w17',     # 04 Feb 2016
+  'player-en_US-vflj1re2B/base' => '16835 s1 r s3 w69 r s3 w53',  # 08 Feb 2016
+  'player-en_US-vflpN2vEY/base' => '16836 w16 r s3 r',            # 10 Feb 2016
+  'player-en_US-vflCdE8nM/base' => '16841 r w51 s3 r s3 w6 w24 r w21',# 11 Feb 2016
+  'player-en_US-vfl329t6E/base' => '16846 s3 w27 r s2 w29 s2 r s3',# 16 Feb 2016
+  'player-en_US-vflGk0Qy7/base' => '16846 s3 w27 r s2 w29 s2 r s3',# 17 Feb 2016
+  'player-en_US-vfligMRZC/base' => '16849 w4 w3 r w50 r s1 w20 s1',# 18 Feb 2016
+  'player-en_US-vfldIygzk/base' => '16850 w48 r s1 r',            # 20 Feb 2016
+  'player-en_US-vflksMPCE/base' => '16853 s2 w61 s2',             # 23 Feb 2016
+  'player-en_US-vflEGP5iK/base' => '16849 w4 w3 r w50 r s1 w20 s1',# 23 Feb 2016
+  'player-en_US-vflRVQlNU/base' => '16856 w44 w49 r',             # 25 Feb 2016
+  'player-en_US-vflKlzoBL/base' => '16855 w54 r s1 w52 s3 r w16 r',# 28 Feb 2016
+  'player-en_US-vfl_cdzrt/base' => '16855 w54 r s1 w52 s3 r w16 r',# 01 Mar 2016
+  'player-en_US-vflteKQR7/base' => '16861 r w40 s2',              # 04 Mar 2016
+  'player-en_US-vfltwl-FJ/base' => '16864 w42 r w14 s3 r s1 r s2',# 08 Mar 2016
+  'player-en_US-vfl6PWeOD/base' => '16864 w42 r w14 s3 r s1 r s2',# 10 Mar 2016
+  'player-en_US-vflcZVscy/base' => '16873 s1 w55 w32 w39 r s3 r w66 s3',# 14 Mar 2016
+  'player-en_US-vflXE5o5C/base' => '16873 s1 w55 w32 w39 r s3 r w66 s3',# 15 Mar 2016
+  'player-en_US-vfl1858es/base' => '16873 s1 w55 w32 w39 r s3 r w66 s3',# 16 Mar 2016
+  'player-en_US-vflKkAVgb/base' => '16873 s1 w55 w32 w39 r s3 r w66 s3',# 17 Mar 2016
+  'player-en_US-vflpmpoFG/base' => '16881 r w70 s2 w53 s1',       # 22 Mar 2016
+  'player-en_US-vfl1uoDql/base' => '16881 r w70 s2 w53 s1',       # 24 Mar 2016
+  'player-en_US-vfl9rzyi6/base' => '16884 w19 w32 w47 w41 w3 w56 r',# 29 Mar 2016
+  'player-en_US-vflEHWF5a/base' => '16884 w19 w32 w47 w41 w3 w56 r',# 31 Mar 2016
+  'player-en_US-vfl6tDF0R/base' => '16890 s3 r w31 w23 w29',      # 31 Mar 2016
+  'player-en_US-vfljAl26P/base' => '16890 s3 r w31 w23 w29',      # 01 Apr 2016
+  'player-en_US-vfl9xTY8I/base' => '16892 s1 r s3 w37 w43 w20',   # 04 Apr 2016
+  'player-en_US-vfls3wurZ/base' => '16892 s1 r s3 w37 w43 w20',   # 05 Apr 2016
+  'player-en_US-vfli5QvRo/base' => '16892 s1 r s3 w37 w43 w20',   # 06 Apr 2016
+  'player-en_US-vfllNvdW4/base' => '16897 r w4 s2 w41 r w52 r',   # 07 Apr 2016
+  'player-en_US-vfll2CKBY/base' => '16898 w19 r s3',              # 12 Apr 2016
+  'player-en_US-vflELI9Sd/base' => '16903 s3 w53 s2 w2',          # 13 Apr 2016
+  'player-en_US-vflg4mKgv/base' => '16903 s3 w53 s2 w2',          # 14 Apr 2016
+  'player-en_US-vflHZ7KXs/base' => '16903 s3 w53 s2 w2',          # 19 Apr 2016
+  'player-en_US-vflnFj56r/base' => '16903 s3 w53 s2 w2',          # 20 Apr 2016
+  'player-en_US-vfljFzcWO/base' => '16913 w7 r w13 w69 s3 r w14', # 22 Apr 2016
+  'player-en_US-vflQ6YtHH/base' => '16913 w7 r w13 w69 s3 r w14', # 22 Apr 2016
+  'player-en_US-vflvBNQyW/base' => '16912 s3 w7 w24 s1',          # 25 Apr 2016
+  'player-en_US-vflG0wokn/base' => '16916 w62 r w38 s1 r s2 r w13 w12',# 26 Apr 2016
+  'player-en_US-vfll6dEHf/base' => '16916 w62 r w38 s1 r s2 r w13 w12',# 27 Apr 2016
+  'player-en_US-vflA_6ZRP/base' => '16918 w14 s1 r w10',          # 29 Apr 2016
 );
 
 
@@ -1266,7 +1538,7 @@ sub guess_cipher(;$$) {
   $verbose = 2 if ($verbose == 1 && !$selftest_p);
 
 
-  my $url = "http://www.youtube.com/";
+  my $url = "https://www.youtube.com/";
   my ($http, $head, $body);
   my $id = '-';
 
@@ -1297,7 +1569,7 @@ sub guess_cipher(;$$) {
   }
 
   $cipher_id =~ s@\\@@gs;
-  $url = "http://s.ytimg.com/yts/jsbin/$cipher_id.js";
+  $url = "https://s.ytimg.com/yts/jsbin/$cipher_id.js";
 
   ($http, $head, $body) = get_url ($url);
   check_http_status ($id, $url, $http, 2);
@@ -1409,7 +1681,7 @@ sub auto_update($) {
   my ($cipher_line) = @_;
 
   open (my $in, '<', $progname0) || error ("$progname0: $!");
-  local $/ = undef;  # read entire file  
+  local $/ = undef;  # read entire file
   my ($body) = <$in>;
   close $in;
 
@@ -1570,7 +1842,7 @@ sub apply_signature($$$$$) {
         my $s = "cipher:   $cipher\n$L1: $o\n$L2: $n";
         $error_whiteboard .= "\n" if $error_whiteboard;
         $error_whiteboard .= "$fmt:       " .
-                             "http://www.youtube.com/watch?v=$id\n$s";
+                             "https://www.youtube.com/watch?v=$id\n$s";
         if ($verbose > 3) {
           print STDERR "$progname: $id: deciphered and replaced signature\n";
           $s =~ s/^([^ ]+)(  )/$2$1/s;
@@ -1659,7 +1931,7 @@ sub youtube_parse_urlmap($$$) {
     # is if the URLs in the map contain "s=" instead of "sig=".
     #
     # If we loaded get_video_info with the "sts" parameter, meaning we told
-    # it what cipher to use, then the returned URLs have that cipher, and 
+    # it what cipher to use, then the returned URLs have that cipher, and
     # all is good.  However, if we had omitted the "sts" parameter, then
     # the URLs come back with some unknown cipher (it's not the last cipher
     # in the list, for example) so we can't decode it.
@@ -1741,7 +2013,8 @@ sub load_youtube_formats_html($$$) {
                          ('(available|blocked it) in your country',
                           'copyright (claim|grounds)',
                           'removed by the user',
-                          'is not available'));
+                          'is not available',
+                          'Content Warning'));
 
   if (! $args) {
     # Try to find a better error message
@@ -1824,7 +2097,7 @@ sub load_youtube_formats_html($$$) {
 
 
 
-# Returns a hash of: 
+# Returns a hash of:
 #  [ title: "T",
 #    N: [ ...video info... ],
 #    M: [ ...video info... ], ... ]
@@ -1859,7 +2132,7 @@ sub load_youtube_formats($$) {
     errorI ("$cipher: no sts") unless $sts;
   }
 
-  my $info_url = ("http://www.youtube.com/get_video_info?video_id=$id" .
+  my $info_url = ("https://www.youtube.com/get_video_info?video_id=$id" .
                   # Avoid the "playback restricted" error. This is a referer.
                   '&eurl=' . url_quote ($url) .
                   ($sts ? '&sts=' . $sts : '')
@@ -1880,7 +2153,7 @@ sub load_youtube_formats($$) {
       unless $urlmap;
     ($kind, $urlmap) = ($body =~ m@&(fmt_stream_map)=([^&]+)@si)	# VEVO
       unless $urlmap;
-    ($kind, $urlmap) = ($body =~ m@&(url_encoded_fmt_stream_map)=([^&]+)@si) 
+    ($kind, $urlmap) = ($body =~ m@&(url_encoded_fmt_stream_map)=([^&]+)@si)
       unless $urlmap;			   # New nonsense seen in Aug 2011
 
     ($kind2, $urlmap2) = ($body =~ m@&(adaptive_fmts)=([^&]+)@si)	# 2014
@@ -1957,6 +2230,7 @@ sub load_youtube_formats($$) {
                          ('(available|blocked it) in your country',
                           'copyright (claim|grounds)',
                           'removed by the user',
+                          'invalid parameters',
                           'is not available',
                           'is not embeddable'));
     if ($err =~ m/$blocked_re/sio) {
@@ -2048,7 +2322,7 @@ sub load_youtube_formats($$) {
 }
 
 
-# Returns a hash of: 
+# Returns a hash of:
 #  [ title: "T",
 #    N: [ ...video info... ],
 #    M: [ ...video info... ], ... ]
@@ -2105,7 +2379,7 @@ sub load_vimeo_formats($$) {
   #   https://vimeo.com/209
   #     Yes, this is a real video.  No "h264" in "files" metadata,
   #     only .flv as "vp6".
-  #   http://www.vimeo.com/142574658
+  #   https://www.vimeo.com/142574658
   #     Only has "progressive" formats, not h264.  Downloads fine though.
 
   ($http, $head, $body) = get_url ($info_url, $referer);
@@ -2119,7 +2393,7 @@ sub load_vimeo_formats($$) {
     $http = '';  # 200
   }
 
-  my ($title)  = ($body =~ m@   "title" : \s* " (.+?) " @six);
+  my ($title)  = ($body =~ m@   "title" : \s* " (.+?) ", @six);
   my ($files0) = ($body =~ m@ { "h264"  : \s* \{ ( .+? \} ) \} , @six);
   my ($files1) = ($body =~ m@ { "vp6"   : \s* \{ ( .+? \} ) \} , @six);
   my ($files2) = ($body =~ m@   "progressive" : \s* \[ ( .+? \] ) \} @six);
@@ -2181,7 +2455,7 @@ sub load_vimeo_formats($$) {
 }
 
 
-# Returns a hash of: 
+# Returns a hash of:
 #  [ title: "T",
 #    year: "Y",
 #    N: [ ...video info... ],
@@ -2191,7 +2465,7 @@ sub load_tumblr_formats($$) {
   my ($id, $url) = @_;
 
   my ($host) = ($url =~ m@^https?://([^/]+)@si);
-  my $info_url = "http://api.tumblr.com/v2/blog/$host/posts/video?id=$id";
+  my $info_url = "https://api.tumblr.com/v2/blog/$host/posts/video?id=$id";
 
   my ($http, $head, $body) = get_url ($info_url);
   check_http_status ($id, $url, $http, 1);
@@ -2271,16 +2545,16 @@ sub get_youtube_year($) {
   # (Actually, we don't have a choice now anyway, since they turned off
   # the v2 API in June 2015, and the v3 API requires authentication.)
 
-  # my $data_url = ("http://gdata.youtube.com/feeds/api/videos/$id?v=2" .
+  # my $data_url = ("https://gdata.youtube.com/feeds/api/videos/$id?v=2" .
   #                 "&fields=published" .
   #                 "&safeSearch=none" .
   #                 "&strict=true");
-  my $data_url = "http://www.youtube.com/watch?v=$id";
+  my $data_url = "https://www.youtube.com/watch?v=$id";
 
   my ($http, $head, $body) = get_url ($data_url);
   return undef unless check_http_status ($id, $data_url, $http, 0);
 
-  # my ($year, $mon, $dotm, $hh, $mm, $ss) = 
+  # my ($year, $mon, $dotm, $hh, $mm, $ss) =
   #   ($body =~ m@<published>(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)@si);
 
   my ($year) = ($body =~ m@\bclass="watch-time-text">[^<>]+\b(\d{4})</@s);
@@ -2293,11 +2567,11 @@ sub get_youtube_year($) {
 #
 sub get_vimeo_year($) {
   my ($id) = @_;
-  my $data_url = "http://vimeo.com/api/v2/video/$id.xml";
+  my $data_url = "https://vimeo.com/api/v2/video/$id.xml";
   my ($http, $head, $body) = get_url ($data_url);
   return undef unless check_http_status ($id, $data_url, $http, 0);
 
-  my ($year, $mon, $dotm, $hh, $mm, $ss) = 
+  my ($year, $mon, $dotm, $hh, $mm, $ss) =
     ($body =~ m@<upload_date>(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d)@si);
   return $year;
 }
@@ -2332,7 +2606,7 @@ sub pick_download_format($$$$$) {
       foreach my $k (keys %$fmts) {
         if ($k eq $force_fmt) {
           print STDERR "$progname: $id: forced #$k (" .
-                       $fmts->{$k}->{w} . " x " . 
+                       $fmts->{$k}->{w} . " x " .
                        $fmts->{$k}->{h} . ")\n"
             if ($verbose > 1);
           return $k;
@@ -2352,7 +2626,7 @@ sub pick_download_format($$$$$) {
               $fmts->{$best}->{w} * $fmts->{$best}->{h})));
     }
     print STDERR "$progname: $id: picked #$best (" .
-                 $fmts->{$best}->{w} . " x " . 
+                 $fmts->{$best}->{w} . " x " .
                  $fmts->{$best}->{h} . ")\n"
       if ($verbose > 1);
     return $best;
@@ -2368,13 +2642,13 @@ sub pick_download_format($$$$$) {
    # a=undef means it's a video-only format.
    # Codecs "mp4S" and "webmS" are 3d video (left/right stereo).
    #
-   # ID     video codec      video size        audio codec    bitrate
+   # ID   video container    video size        audio codec    bitrate
    #
    0   => { v => 'flv',  w =>  320, h =>  180, a => 'mp3', abr =>  64   },
    5   => { v => 'flv',  w =>  320, h =>  180, a => 'mp3', abr =>  64   },
    6   => { v => 'flv',  w =>  480, h =>  270, a => 'mp3', abr =>  96   },
    13  => { v => '3gp',  w =>  176, h =>  144, a => 'amr', abr =>  13   },
-   17  => { v => '3gp',  w =>  176, h =>  144, a => 'aac', abr =>  29   },
+   17  => { v => '3gp',  w =>  176, h =>  144, a => 'aac', abr =>  24   },
    18  => { v => 'mp4',  w =>  480, h =>  360, a => 'aac', abr => 125   },
    22  => { v => 'mp4',  w => 1280, h =>  720, a => 'aac', abr => 198   },
    34  => { v => 'flv',  w =>  640, h =>  360, a => 'aac', abr =>  52   },
@@ -2448,9 +2722,10 @@ sub pick_download_format($$$$$) {
    315 => { v => 'webm', w => 3840, h => 2160, a => undef               },
   );
   #
-  # The table on http://en.wikipedia.org/wiki/YouTube#Quality_and_codecs
+  # The table on https://en.wikipedia.org/wiki/YouTube#Quality_and_formats
   # disagrees with the above to some extent.  Which is more accurate?
   # (Oh great, they deleted that table from Wikipedia. Lovely.)
+  # (Ah great, they added the table back to Wikipedia Mar 2016.)
   #
   # fmt=38/37/22 are only available if upload was that exact resolution.
   #
@@ -2476,100 +2751,100 @@ sub pick_download_format($$$$$) {
   #
   # Test cases and examples:
   #
-  #   http://www.youtube.com/watch?v=wjzyv2Q_hdM
+  #   https://www.youtube.com/watch?v=wjzyv2Q_hdM
   #   5-Aug-2011: 38=flv/1080p but 45=webm/720p.
   #   6-Aug-2011: 38 no longer offered.
   #
-  #   http://www.youtube.com/watch?v=ms1C5WeSocY
+  #   https://www.youtube.com/watch?v=ms1C5WeSocY
   #   6-Aug-2011: embedding disabled, but get_video_info works.
   #
-  #   http://www.youtube.com/watch?v=g40K0dFi9Bo
+  #   https://www.youtube.com/watch?v=g40K0dFi9Bo
   #   10-Sep-2011: 3D, fmts 82 and 84.
   #
-  #   http://www.youtube.com/watch?v=KZaVq1tFC9I
+  #   https://www.youtube.com/watch?v=KZaVq1tFC9I
   #   14-Nov-2011: 3D, fmts 100 and 102.  This one has 2D images in most
   #   formats but left/right images in the 3D formats.
   #
-  #   http://www.youtube.com/watch?v=SlbpRviBVXA
+  #   https://www.youtube.com/watch?v=SlbpRviBVXA
   #   15-Nov-2011: 3D, fmts 46, 83, 85, 101.  This one has left/right images
   #   in all of the formats, even the 2D formats.
   #
-  #   http://www.youtube.com/watch?v=711bZ_pLusQ
+  #   https://www.youtube.com/watch?v=711bZ_pLusQ
   #   30-May-2012: First sighting of fmt 36, 3gpp/240p.
   #
-  #   http://www.youtube.com/watch?v=0yyorhl6IjM
+  #   https://www.youtube.com/watch?v=0yyorhl6IjM
   #   30-May-2013: Here's one that's more than an hour long.
   #
-  #   http://www.youtube.com/watch?v=pc4ANivCCgs
+  #   https://www.youtube.com/watch?v=pc4ANivCCgs
   #   15-Nov-2013: First sighting of formats 59 and 78.
   #
-  #   http://www.youtube.com/watch?v=WQzVhOZnku8
+  #   https://www.youtube.com/watch?v=WQzVhOZnku8
   #   3-Sep-2014: First sighting of a 24/7 realtime stream.
   #
-  #   http://www.youtube.com/watch?v=gTIK2XawLDA
+  #   https://www.youtube.com/watch?v=gTIK2XawLDA
   #   22-Jan-2015: DNA Lounge 24/7 live stream, 640x360.
   #
-  #   http://www.youtube.com/watch?v=hHKJ5eE7I1k
+  #   https://www.youtube.com/watch?v=hHKJ5eE7I1k
   #   22-Jan-2015: 2K video. Formats 36, 136, 137, 138.
   #
-  #   http://www.youtube.com/watch?v=udAL48P5NJU
+  #   https://www.youtube.com/watch?v=udAL48P5NJU
   #   22-Jan-2015: 4K video. Formats 36, 136, 137, 138, 266, 313.
   #
-  #   http://www.youtube.com/watch?v=OEhRucEVzH8
+  #   https://www.youtube.com/watch?v=OEhRucEVzH8
   #   20-Feb-2015: best formats 18 (640 x 360) and 135 (854 x 480)
   #   First sighting of a video where we must mux to get the best
   #   non-HD version.
   #
-  #   http://www.youtube.com/watch?v=Ol61WOSzLF8
+  #   https://www.youtube.com/watch?v=Ol61WOSzLF8
   #   10-Mar-2015: formerly RTMPE but 14-Apr-2015 no longer
   #
-  #   http://www.youtube.com/watch?v=1ltcDfZMA3U  Maps
+  #   https://www.youtube.com/watch?v=1ltcDfZMA3U  Maps
   #   29-Mar-2015: formerly playable in US region, but no longer
   #
-  #   http://www.youtube.com/watch?v=ttqMGYHhFFA  Metric
+  #   https://www.youtube.com/watch?v=ttqMGYHhFFA  Metric
   #   29-Mar-2015: Formerly enciphered, but no longer
   #
-  #   http://www.youtube.com/watch?v=7wL9NUZRZ4I  Bowie
+  #   https://www.youtube.com/watch?v=7wL9NUZRZ4I  Bowie
   #   29-Mar-2015: Formerly enciphered and content warning; no longer CW.
   #
-  #   http://www.youtube.com/watch?v=07FYdnEawAQ Timberlake
+  #   https://www.youtube.com/watch?v=07FYdnEawAQ Timberlake
   #   29-Mar-2015: enciphered and "content warning" (HTML scraping fails)
   #
-  #   http://youtube.com/watch?v=HtVdAasjOgU
+  #   https://youtube.com/watch?v=HtVdAasjOgU
   #   29-Mar-2015: content warning, but non-enciphered
   #
-  #   http://www.youtube.com/watch?v=__2ABJjxzNo
+  #   https://www.youtube.com/watch?v=__2ABJjxzNo
   #   29-Mar-2015: has url_encoded_fmt_stream_map but not adaptive_fmts
   #
-  #   http://www.youtube.com/watch?v=lqQg6PlCWgI
+  #   https://www.youtube.com/watch?v=lqQg6PlCWgI
   #   29-Mar-2015: finite-length archive of a formerly livestreamed video.
   #   We currently can't download this, but it's doable.
   #   See dna/backstage/src/slideshow/slideshow-youtube-frame.pl
   #
   #   Enciphered:
-  #   http://www.youtube.com/watch?v=ktoaj1IpTbw  Chvrches
-  #   http://www.youtube.com/watch?v=28Vu8c9fDG4  Emika
-  #   http://www.youtube.com/watch?v=_mDxcDjg9P4  Vampire Weekend
-  #   http://www.youtube.com/watch?v=8UVNT4wvIGY  Gotye
-  #   http://www.youtube.com/watch?v=OhhOU5FUPBE  Black Sabbath
-  #   http://www.youtube.com/watch?v=UxxajLWwzqY  Icona Pop
+  #   https://www.youtube.com/watch?v=ktoaj1IpTbw  Chvrches
+  #   https://www.youtube.com/watch?v=28Vu8c9fDG4  Emika
+  #   https://www.youtube.com/watch?v=_mDxcDjg9P4  Vampire Weekend
+  #   https://www.youtube.com/watch?v=8UVNT4wvIGY  Gotye
+  #   https://www.youtube.com/watch?v=OhhOU5FUPBE  Black Sabbath
+  #   https://www.youtube.com/watch?v=UxxajLWwzqY  Icona Pop
   #
-  #   http://www.youtube.com/watch?v=g_uoH6hJilc
+  #   https://www.youtube.com/watch?v=g_uoH6hJilc
   #   28-Mar-2015: enciphered Vevo (Years & Years) on which CTF was failing
   #
-  #   http://www.youtube.com/watch?v=ccyE1Kz8AgM
+  #   https://www.youtube.com/watch?v=ccyE1Kz8AgM
   #   28-Mar-2015: not viewable in US (US is not on the include list)
   #
-  #   http://www.youtube.com/watch?v=ccyE1Kz8AgM
+  #   https://www.youtube.com/watch?v=ccyE1Kz8AgM
   #   28-Mar-2015: blocked in US (US is on the exclude list)
   #
-  #   http://www.youtube.com/watch?v=GjxOqc5hhqA
+  #   https://www.youtube.com/watch?v=GjxOqc5hhqA
   #   28-Mar-2015: says "please sign in", but when signed in, it's private
   #
-  #   http://www.youtube.com/watch?v=UlS_Rnb5WM4
+  #   https://www.youtube.com/watch?v=UlS_Rnb5WM4
   #   28-Mar-2015: non-embeddable (Pogo)
   #
-  #   http://www.youtube.com/watch?v=JYEfJhkPK7o
+  #   https://www.youtube.com/watch?v=JYEfJhkPK7o
   #   14-Apr-2015: RTMPE DRM
   #   get_video_info fails with "This video contains content from Mosfilm,
   #   who has blocked it from display on this website.  Watch on Youtube."
@@ -2577,13 +2852,13 @@ sub pick_download_format($$$$$) {
   #   "stream", but I don't know how to put those together into an
   #   invocation of "rtmpdump" that does anything at all.
   #
-  #   http://www.youtube.com/watch?v=UXMG102kSvk
+  #   https://www.youtube.com/watch?v=UXMG102kSvk
   #   17-Aug-2015: WebM higher rez than MP4:
   #   299 (1920 x 1080 mp4 v/o)
   #   308 (2560 x 1440 webm v/o)  <-- webm, not mp4
   #   315 (3840 x 2160 webm v/o)
   #
-  #   http://www.youtube.com/watch?v=dC_nFgJAcuQ
+  #   https://www.youtube.com/watch?v=dC_nFgJAcuQ
   #   2-Dec-2015: First sighting of 5.1 stereo formats 256 and 258.
 
 
@@ -2803,9 +3078,9 @@ sub pick_download_format($$$$$) {
 sub munge_title($) {
   my ($title) = @_;
 
-  return $title unless defined($title);
+  return 'Untitled' unless defined($title);
 
-  sub unihex($) { 
+  sub unihex($) {
     my ($c) = @_;
     $c = hex($c);
     my $s = chr($c);
@@ -2815,12 +3090,12 @@ sub munge_title($) {
     # expand it to the corresponding unicode character.
     #
     # Test cases:
-    #   http://www.vimeo.com/82503761			é  as \u00e9\u00a0
-    #   http://www.vimeo.com/123397581			û– as \u00fb\u2013
-    #   http://www.youtube.com/watch?v=z9ScJBmEdQw	ä  as UTF8 (2 bytes)
-    #   http://www.youtube.com/watch?v=eAXmgId3NTQ	ø  as UTF8 (2 bytes)
-    #   http://www.youtube.com/watch?v=FszEaxrHGTs	∆  as UTF8 (3 bytes)
-    #   http://www.youtube.com/watch?v=4ViwSeuWVfE	JP as UTF8 (3 bytes)
+    #   https://www.vimeo.com/82503761			é  as \u00e9\u00a0
+    #   https://www.vimeo.com/123397581			û– as \u00fb\u2013
+    #   https://www.youtube.com/watch?v=z9ScJBmEdQw	ä  as UTF8 (2 bytes)
+    #   https://www.youtube.com/watch?v=eAXmgId3NTQ	ø  as UTF8 (2 bytes)
+    #   https://www.youtube.com/watch?v=FszEaxrHGTs	∆  as UTF8 (3 bytes)
+    #   https://www.youtube.com/watch?v=4ViwSeuWVfE	JP as UTF8 (3 bytes)
     #
 
     # If this is still a Latin1 string, upgrade it to wide chars.
@@ -2873,7 +3148,8 @@ sub munge_title($) {
                      (DVD|CD)? \s+ (out \s+ now | on \s+ (iTunes|Amazon)) |
                      fan \s* made |
                      ( FULL|COMPLETE ) \s+ ( set|concert|album ) |
-                     FREE \s+ ( download|D\s*[[:punct:]-]\s*L )
+                     FREE \s+ ( download|D\s*[[:punct:]-]\s*L ) |
+		     Live \s+ \@ \s .*
                    )
                    \b \s* )+ //gsix;
 
@@ -2902,9 +3178,9 @@ sub munge_title($) {
 #  1 while ($title =~ s/\{\s*\}//gs);
 
   # Lose now-empty parens.
-  #   
+  #
   # Any combination of these words is an empty phrase.
-  my ($empty_phrase) 
+  my ($empty_phrase)
     = q/
         \s*(
           the | new | free | amazing | (un)?off?ici[ae]le? | 
@@ -2915,10 +3191,10 @@ sub munge_title($) {
           teaser | trailer 
         )?\s*
       /
-  ;   
+  ;
   # Jesus fuck, youtube, how much more diarrhea can there be??
   # None.  None more diarrhea.
-    
+
   1 while ($title =~ s/\(($empty_phrase)*\)//gsix); # Check all
   1 while ($title =~ s/\[($empty_phrase)*\]//gsix); # three
   1 while ($title =~ s/\{($empty_phrase)*\}//gsix); # paren styles.
@@ -2930,7 +3206,7 @@ sub munge_title($) {
 
   # Guess the title and artist by applying a series of regexes, in order,
   # Starting with    the most sensitive attempts,
-  # slowly moving to the most stable    attempts, 
+  # slowly moving to the most stable    attempts,
   # and ending with  the most desperate attempts.
 
   my $obrack = '[\(\[\{]';   # for readability; matches the 3 major brackets.
@@ -3019,22 +3295,22 @@ sub munge_title($) {
         $artist =~ m/^ ( .+? ) \s+ -+ \s+ ( .+? ) $/six);
 
   ($track, $junk) = ($1, "$2 $junk")  # live at LOCATION in $track?
-    if ($artist && $track &&   
+    if ($artist && $track &&
         $track =~ m/^ ( .+? ) \s+ $obrack? ( live \s* (at|@) .* )$/six);
-                               #  ^^^^^^^---closing paren to be chopped below 
+                               #  ^^^^^^^---closing paren to be chopped below
 
 
   # You will find my junk requires extra scrubbing today.
   if ($junk) {
     $junk =~ s/^\s+|\s+$//gs;
-      
-    # disallow  junk consisting of all punctuation, 
-    # but allow junk consisting of all digits or foreign chars.
-    $junk = '' if $junk =~ m/^[[:punct:]\s]+$/i;  
 
-    # de-parenthesize 
+    # disallow  junk consisting of all punctuation,
+    # but allow junk consisting of all digits or foreign chars.
+    $junk = '' if $junk =~ m/^[[:punct:]\s]+$/i;
+
+    # de-parenthesize
     $junk =~ s/^ [\(\[\{\s]+ (.+?) [\)\]\}\s]+ $/$1/six;
-    
+
     # Stahhhhhp...
     $junk = '' if $junk =~ m/ ^ \s* ( (un)?off?ici[ae]le? | video ) \s* $/six;
   }
@@ -3044,8 +3320,8 @@ sub munge_title($) {
   foreach my $s ($artist, $track, $junk, $title) {
     next unless $s;
 
-    # Allow leading and trailing "." here. 
-    # Otherwise, it messes up 
+    # Allow leading and trailing "." here.
+    # Otherwise, it messes up
     #   Seasons       -- ...Of Our Discontent
     #   Jordin Sparks -- S.O.S. (Let The Music Play)
     #   R.E.M.        -- Automatic for the People
@@ -3053,7 +3329,7 @@ sub munge_title($) {
               [-\s\"\'\`\|,;:]+ $ //gsx;
 
     # Remove easily-found unbalanced parens.
-    #    
+    #
     #   "TRACK (by ARTIST)" becomes "ARTIST) - TRACK (".
     #   Cleaning unbalanced parens as below fixes that,
     #   but messes up the band name "Sunn O)))".  Oh well.
@@ -3071,21 +3347,21 @@ sub munge_title($) {
     # Maybe I'll fix that later; I do love the burden of inhuman toil.
 
 
-    # If there are no lower case letters, 
+    # If there are no lower case letters,
     # capitalize all fully-upper-case words (with some allowances).
     my $okupper =
-      # There're fewer good all-caps artists than diarrhea words.  
+      # There're fewer good all-caps artists than diarrhea words.
       # Just list them.
-      # Ironically, the story of the band ALL CAPS 
+      # Ironically, the story of the band ALL CAPS
       # is too stupid to warrant including them.
       'NIN|MS\s?MR|RJD2|HNN|'            # ARTISTS
-      .'MF\|?\s?MB\|?|'  
+      .'MF\|?\s?MB\|?|'
       .'STRFKR|EMA|UDG|BDRG|HOTT MT|'
       .'RAW|MNDR|HTRK|SPC ECO|RTX|2NE1|'
       .'BT|INXS|THX|SNL|CTRL|'
-        
+
       .'POB|JPL|LNX|' # are these DJs? abbreviations?
-        
+
       .'YKWYR|MFN|TV|ICHRU|AAA|OK|MJ|'   # TRACKS
       .'I\s?L\s?U|TKO|SWAG|'
       .'LAX|ADHD|BTR'
@@ -3137,8 +3413,8 @@ sub file_exists_with_suffix($) {
 # the highest-resolution underlying video.  The HTML also lists the
 # video dimensions and file size, if possible.
 #
-sub cgi_output($$$@) {
-  my ($id, $title, $orig_url, @targets) = @_;
+sub cgi_output($$$$@) {
+  my ($id, $title, $orig_url, $bwlimit, @targets) = @_;
 
   my $video  = $targets[0];
   my $audio  = $targets[1];
@@ -3146,12 +3422,14 @@ sub cgi_output($$$@) {
 
   my ($w, $h, $size) = video_url_size ($id,
                                        $video->{url},
-                                       $video->{content_type});
+                                       $video->{content_type},
+                                       $bwlimit);
   $size = -1 unless defined($size);
 
   my ($w3, $h3, $size3) = video_url_size ($id,
                                           $premux->{url},
-                                          $premux->{content_type})
+                                          $premux->{content_type},
+                                          $bwlimit)
     if ($premux);
   $size3 = -1 unless defined($size3);
 
@@ -3182,11 +3460,11 @@ sub cgi_output($$$@) {
 
   # I had hoped that transforming
   #
-  #   http://v5.lscache2.googlevideo.com/videoplayback?ip=....
+  #   https://v5.lscache2.googlevideo.com/videoplayback?ip=....
   #
   # into
   #
-  #   http://v5.lscache2.googlevideo.com/videoplayback/Video+Title.mp4?ip=....
+  #   https://v5.lscache2.googlevideo.com/videoplayback/Video+Title.mp4?ip=....
   #
   # would trick Safari into downloading the file with a sensible file name.
   # Normally Safari picks the target file name for a download from the final
@@ -3231,14 +3509,14 @@ sub cgi_output($$$@) {
   my $muxed_file = $file;
   $muxed_file =~ s@\.(audio-only|video-only)\.@.@gs;
 
-  $url = ($ENV{SCRIPT_NAME} . 
+  $url = ($ENV{SCRIPT_NAME} .
           '/' . url_quote($muxed_file) .
           '?src=' . url_quote($orig_url) .
           '&' . ($proxy_p? 'proxy' : 'redir') .
           '=' . $url .
           '&ct=' . $ct
          );
-  $url3 = ($ENV{SCRIPT_NAME} . 
+  $url3 = ($ENV{SCRIPT_NAME} .
           '/' . url_quote($muxed_file) .
           '?src=' . url_quote($orig_url) .
           '&' . ($proxy_p? 'proxy' : 'redir') .
@@ -3286,21 +3564,21 @@ sub canonical_url($) {
   $url =~ s@&amp;@&@gs;
   $url =~ s@&amp;@&@gs;
 
-  # Add missing "http:"
-  $url = "http://$url" unless ($url =~ m@^https?://@si);
+  # Add missing "https:"
+  $url = "https://$url" unless ($url =~ m@^https?://@si);
 
   # Rewrite youtu.be URL shortener.
-  $url =~ s@^https?://([a-z]+\.)?youtu\.be/@http://youtube.com/v/@si;
+  $url =~ s@^https?://([a-z]+\.)?youtu\.be/@https://youtube.com/v/@si;
 
   # Rewrite Vimeo URLs so that we get a page with the proper video title:
   # "/...#NNNNN" => "/NNNNN"
   $url =~ s@^(https?://([a-z]+\.)?vimeo\.com/)[^\d].*\#(\d+)$@$1$3@s;
 
-  $url =~ s@^https:@http:@s;	# No https.
+  $url =~ s@^http:@https:@s;	# Always https.
 
   my ($id, $site, $playlist_p);
 
-  # Youtube /view_play_list?p= or /p/ URLs. 
+  # Youtube /view_play_list?p= or /p/ URLs.
   if ($url =~ m@^https?://(?:[a-z]+\.)?(youtube) (?:-nocookie)? \.com/
                 (?: view_play_list\?p= |
                     p/ |
@@ -3311,11 +3589,11 @@ sub canonical_url($) {
                 )
                 ([^<>?&,]+) ($|&) @sx) {
     ($site, $id) = ($1, $2);
-    $url = "http://www.$site.com/view_play_list?p=$id";
+    $url = "https://www.$site.com/view_play_list?p=$id";
     $playlist_p = 1;
 
   # Youtube "/verify_age" URLs.
-  } elsif ($url =~ 
+  } elsif ($url =~
            m@^https?://(?:[a-z]+\.)?(youtube) (?:-nocookie)? \.com/+
 	     .* next_url=([^&]+)@sx ||
            $url =~ m@^https?://(?:[a-z]+\.)?google\.com/
@@ -3331,9 +3609,9 @@ sub canonical_url($) {
       $url = url_unquote($1);
       $url =~ s@&.*$@@s;
     }
-    $url = "http://www.$site.com$url" if ($url =~ m@^/@s);
+    $url = "https://www.$site.com$url" if ($url =~ m@^/@s);
 
-  # Youtube /watch/?v= or /watch#!v= or /v/ URLs. 
+  # Youtube /watch/?v= or /watch#!v= or /v/ URLs.
   } elsif ($url =~ m@^https?:// (?:[a-z]+\.)?
                      (youtube) (?:-nocookie)? (?:\.googleapis)? \.com/+
                      (?: (?: watch/? )? (?: \? | \#! ) v= |
@@ -3344,40 +3622,46 @@ sub canonical_url($) {
                      )
                      ([^<>?&,\'\"]+) ($|[?&]) @sx) {
     ($site, $id) = ($1, $2);
-    $url = "http://www.$site.com/watch?v=$id";
+    $url = "https://www.$site.com/watch?v=$id";
 
   # Youtube "/user" and "/profile" URLs.
   } elsif ($url =~ m@^https?://(?:[a-z]+\.)?(youtube) (?:-nocookie)? \.com/
                      (?:user|profile).*\#.*/([^&/]+)@sx) {
     $site = $1;
     $id = url_unquote($2);
-    $url = "http://www.$site.com/watch?v=$id";
+    $url = "https://www.$site.com/watch?v=$id";
     error ("unparsable user next_url: $url") unless $id;
 
   # Vimeo /NNNNNN URLs
   # and player.vimeo.com/video/NNNNNN
   # and vimeo.com/m/NNNNNN
-  } elsif ($url =~ 
+  } elsif ($url =~
            m@^https?://(?:[a-z]+\.)?(vimeo)\.com/(?:video/|m/)?(\d+)@s) {
     ($site, $id) = ($1, $2);
-    $url = "http://www.$site.com/$id";
+    $url = "https://www.$site.com/$id";
 
   # Vimeo /videos/NNNNNN URLs.
   } elsif ($url =~ m@^https?://(?:[a-z]+\.)?(vimeo)\.com/.*/videos/(\d+)@s) {
     ($site, $id) = ($1, $2);
-    $url = "http://www.$site.com/$id";
+    $url = "https://www.$site.com/$id";
 
   # Vimeo /channels/name/NNNNNN URLs.
   # Vimeo /ondemand/name/NNNNNN URLs.
-  } elsif ($url =~ 
+  } elsif ($url =~
            m@^https?://(?:[a-z]+\.)?(vimeo)\.com/[^/]+/[^/]+/(\d+)@s) {
     ($site, $id) = ($1, $2);
-    $url = "http://www.$site.com/$id";
+    $url = "https://www.$site.com/$id";
+
+  # Vimeo /album/NNNNNN/video/MMMMMM
+  } elsif ($url =~
+           m@^https?://(?:[a-z]+\.)?(vimeo)\.com/album/\d+/video/(\d+)@s) {
+    ($site, $id) = ($1, $2);
+    $url = "https://www.$site.com/$id";
 
   # Vimeo /moogaloop.swf?clip_id=NNNNN
   } elsif ($url =~ m@^https?://(?:[a-z]+\.)?(vimeo)\.com/.*clip_id=(\d+)@s) {
     ($site, $id) = ($1, $2);
-    $url = "http://www.$site.com/$id";
+    $url = "https://www.$site.com/$id";
 
   # Tumblr /video/UUU/NNNNN
   } elsif ($url =~
@@ -3385,14 +3669,14 @@ sub canonical_url($) {
     my $user;
     ($site, $user, $id) = ($1, $2, $3);
     $site = lc($site);
-    $url = "http://$user.$site.com/post/$id";
+    $url = "https://$user.$site.com/post/$id";
 
   # Tumblr /post/NNNNN
   } elsif ($url =~ m@^https?://([-_a-z]+)\.(tumblr)\.com/.*?/(\d{8,})/@si) {
     my $user;
     ($user, $site, $id) = ($1, $2, $3);
     $site = lc($site);
-    $url = "http://$user.$site.com/post/$id";
+    $url = "https://$user.$site.com/post/$id";
 
   } else {
     error ("unparsable URL: $url");
@@ -3469,7 +3753,7 @@ sub mux_downloaded_files($$$$$$) {
       $err = undef;
       $err = "$id: $cmd[0]: core dumped!" if ($dumped_core);
       $err = "$id: $cmd[0]: signal $signal_num!" if ($signal_num);
-      $err = "$id: $cmd[0]: exited with $exit_value!" if ($exit_value); 
+      $err = "$id: $cmd[0]: exited with $exit_value!" if ($exit_value);
     }
 
     if ($err) {
@@ -3490,20 +3774,21 @@ sub mux_downloaded_files($$$$$$) {
   my $s1 = (stat($audio_file))[7] || 0;
   my $s2 = (stat($video_file))[7] || 0;
   my $s3 = (stat($muxed_file))[7] || 0;
-  
+
   $s1 = $s1 + $s2;
-  my $diff = $s1 - $s3;
-  if ($s1 > (1024 * 1024) &&	# size > 1M
-      $diff > 1024 * 200 &&	# diff > 200K
-      $diff > $s1 * 0.2) {	# diff > 2%
+  my $diff = $s1 * 0.05;        # 5% of audio+video seems safe & sane
+  if (($s3 < ($s1 - $diff)) ||  # muxed is less than audio+video - 5%
+      ($s3 > ($s1 + $diff))) {  # muxed is more than audio+video + 5%
     my $s1b = fmt_size ($s1);
     my $s3b = fmt_size ($s3);
-    unlink ($audio_file, $video_file, $muxed_file);
+    unlink ($audio_file, $video_file, $muxed_file)
+      if ($verbose < 3);
     error ("$id: $cmd[0] wrote a short file! Got $s3b, expected $s1b" .
            " ($s1 - $s3 = $diff)");
   }
 
-  unlink ($audio_file, $video_file);
+  unlink ($audio_file, $video_file)
+    if ($verbose < 3);
 
   write_file_metadata_url ($muxed_file, $id, $url);
 
@@ -3518,7 +3803,6 @@ sub mux_downloaded_files($$$$$$) {
 }
 
 
-
 sub content_type_ext($) {
   my ($ct) = @_;
   if    ($ct =~ m@/(x-)?flv$@si)  { return 'flv';  }
@@ -3529,9 +3813,10 @@ sub content_type_ext($) {
   else                            { return 'mp4';  }
 }
 
-sub download_video_url($$$$$$$$) {
+
+sub download_video_url($$$$$$$$$) {
   my ($url, $title, $prefix, $size_p, $list_p,
-      $progress_p, $cgi_p, $force_fmt) = @_;
+      $bwlimit, $progress_p, $cgi_p, $force_fmt) = @_;
 
   $error_whiteboard = '';	# reset per-URL diagnostics
   $progress_ticks = 0;		# reset progress-bar counters
@@ -3553,7 +3838,7 @@ sub download_video_url($$$$$$$$) {
   #
   if ($url =~ m@view_play_list@s) {
     return download_youtube_playlist ($id, $url, $title, $prefix, $size_p,
-                                      $list_p, $progress_p, $cgi_p,
+                                      $list_p, $bwlimit, $progress_p, $cgi_p,
                                       $force_fmt);
   }
 
@@ -3564,7 +3849,7 @@ sub download_video_url($$$$$$$$) {
       my $t2 = ($prefix ? "$prefix $title" : $title);
       print STDOUT "$id\t$t2\n";
     } else {
-      print STDOUT "http://www.$site.com/watch?v=$id\n";
+      print STDOUT "https://www.$site.com/watch?v=$id\n";
     }
     return;
   }
@@ -3628,7 +3913,7 @@ sub download_video_url($$$$$$$$) {
       my $year = ($fmts->{year}      ? $fmts->{year}          :
                   $site eq 'youtube' ? get_youtube_year ($id) :
                   $site eq 'vimeo'   ? get_vimeo_year ($id)   : undef);
-      if ($year && 
+      if ($year &&
           $year  != (localtime())[5]+1900 &&   # Omit this year
           $title !~ m@\b$year\b@s) {		 # Already in the title
         $title .= " ($year)";
@@ -3690,7 +3975,7 @@ sub download_video_url($$$$$$$$) {
 
     if ($size_p) {
       if (! (($w && $h) || $abr)) {
-        ($w, $h, $size, $abr) = video_url_size ($id, $url2, $ct);
+        ($w, $h, $size, $abr) = video_url_size ($id, $url2, $ct, $bwlimit);
       }
 
       my $ii = $id . (@targets == 1 ? '' : ":$target");
@@ -3730,7 +4015,7 @@ sub download_video_url($$$$$$$$) {
 
       my $start_time = time();
       my ($http, $head, $body) = get_url ($url2, undef, $file,
-                                          undef, $progress_p);
+                                          $bwlimit, undef, $progress_p);
       my $download_time = time() - $start_time;
 
       check_http_status ($id, $url, $http, 2);  # internal error if still 403
@@ -3777,10 +4062,10 @@ sub download_video_url($$$$$$$$) {
   }
 
   if ($cgi_p) {
-    cgi_output ($id, $title, $url, @cgi_args);
+    cgi_output ($id, $title, $url, $bwlimit, @cgi_args);
 
   } elsif (@pair) {
-    mux_downloaded_files ($id, $url, $title, 
+    mux_downloaded_files ($id, $url, $title,
                           $fmts->{$pair[0]},
                           $fmts->{$pair[1]},
                           undef);
@@ -3789,8 +4074,9 @@ sub download_video_url($$$$$$$$) {
 }
 
 
-sub download_youtube_playlist($$$$$$$$$) {
-  my ($id, $url, $title, $prefix, $size_p, $list_p, $progress_p, $cgi_p,
+sub download_youtube_playlist($$$$$$$$$$) {
+  my ($id, $url, $title, $prefix, $size_p, $list_p,
+      $bwlimit, $progress_p, $cgi_p,
       $force_fmt) = @_;
 
   my @playlist = ();
@@ -3818,7 +4104,7 @@ sub download_youtube_playlist($$$$$$$$$) {
         $href = $1;
         $t2 = munge_title (html_unquote ($t2));
         $t2 = sprintf("%s: %02d: %s", $title, ++$i, $t2);
-        $href = 'http://www.youtube.com/watch?v=' . $href;
+        $href = 'https://www.youtube.com/watch?v=' . $href;
         push \@playlist, [ $t2, $href ];
       }
     }
@@ -3850,7 +4136,8 @@ sub download_youtube_playlist($$$$$$$$$) {
     my ($t2, $u2) = @$P;
     eval {
       $noerror = 1;
-      download_video_url ($u2, $t2, $prefix, $size_p, $list_p, $progress_p,
+      download_video_url ($u2, $t2, $prefix, $size_p, $list_p,
+                          $bwlimit, $progress_p,
                           $cgi_p, $force_fmt);
       $noerror = 0;
     };
@@ -3860,8 +4147,8 @@ sub download_youtube_playlist($$$$$$$$$) {
 }
 
 
-sub do_cgi($) {
-  my ($muxp) = @_;
+sub do_cgi($$) {
+  my ($muxp, $bwlimit) = @_;
 
   $|=1;
 
@@ -3875,12 +4162,12 @@ sub do_cgi($) {
   }
 
   if (!$args &&
-      defined($ENV{REQUEST_URI}) && 
+      defined($ENV{REQUEST_URI}) &&
       $ENV{REQUEST_URI} =~ m/^(.*?)\?(.*)$/s) {
     $args = $2;
     # for cmd-line debugging
     $ENV{SCRIPT_NAME} = $1 unless defined($ENV{SCRIPT_NAME});
-#    $ENV{PATH_INFO} = $1 if (!$ENV{PATH_INFO} && 
+#    $ENV{PATH_INFO} = $1 if (!$ENV{PATH_INFO} &&
 #                             $ENV{SCRIPT_NAME} =~ m@^.*/(.*)@s);
   }
 
@@ -3941,7 +4228,7 @@ sub do_cgi($) {
         my $muxed_file = sprintf("$tmp/$progname-M-%08x.$e1",rand(0xFFFFFFFF));
 
         unlink ($video_file, $audio_file, $muxed_file);
-        push @rm_r, ($video_file, $audio_file, $muxed_file);
+        push @rm_f, ($video_file, $audio_file, $muxed_file);
 
         # So we're downloading two files and muxing them before we have any
         # bytes we can send to the client.  That means that several minutes
@@ -3957,9 +4244,9 @@ sub do_cgi($) {
         my $progress_p = 'cgi';
         my $hdr = "X-Heartbeat: ";
         print STDOUT $hdr;
-        get_url ($proxy, undef, $video_file, undef, 'cgi');
+        get_url ($proxy, undef, $video_file, $bwlimit, undef, 'cgi');
         print STDOUT "\n$hdr";
-        get_url ($audio, undef, $audio_file, undef, 'cgi');
+        get_url ($audio, undef, $audio_file, $bwlimit, undef, 'cgi');
         print STDOUT "\n";  # close $hdr
 
         my %v1 = ( file => $video_file );
@@ -3993,7 +4280,7 @@ sub do_cgi($) {
         # Otherwise we can just stream it without involving the disk.
         print STDOUT "Content-Disposition: attachment; filename=\"$title\"\n";
         binmode (STDOUT, ':raw');
-        get_url ($proxy, undef, '-');
+        get_url ($proxy, undef, '-', $bwlimit);
       }
     }
 
@@ -4002,7 +4289,8 @@ sub do_cgi($) {
       if (defined($ENV{PATH_INFO}) && $ENV{PATH_INFO} ne "");
 
     my $force_fmt = ($muxp ? 'mux' : undef);
-    download_video_url ($url, undef, undef, 0, 0, undef, 1, $force_fmt);
+    download_video_url ($url, undef, undef, 0, 0,
+                        $bwlimit, undef, 1, $force_fmt);
 
   } else {
     error ("no URL specified for CGI");
@@ -4014,7 +4302,7 @@ sub usage() {
   print STDERR "usage: $progname" .
                  " [--verbose] [--quiet] [--progress] [--size]\n" .
            "\t\t   [--title txt] [--prefix txt] [--suffix]\n" .
-           "\t\t   [--fmt N] [--no-mux]\n" .
+           "\t\t   [--fmt N] [--no-mux] [--bwlimit N [kb | KB | mb | MB]]\n" .
            "\t\t   youtube-or-vimeo-urls ...\n";
   exit 1;
 }
@@ -4028,7 +4316,12 @@ sub main() {
   srand(time ^ $$);            # for tmp files
 
   # historical suckage: the environment variable name is lower case.
-  $http_proxy = $ENV{http_proxy} || $ENV{HTTP_PROXY};
+  $http_proxy = ($ENV{http_proxy}  || $ENV{HTTP_PROXY} ||
+                 $ENV{https_proxy} || $ENV{HTTPS_PROXY});
+  delete $ENV{http_proxy};
+  delete $ENV{HTTP_PROXY};
+  delete $ENV{https_proxy};
+  delete $ENV{HTTPS_PROXY};
 
   if ($http_proxy && $http_proxy !~ m/^http/si) {
     # historical suckage: allow "host:port" as well as "http://host:port".
@@ -4045,6 +4338,7 @@ sub main() {
   my $expect = undef;
   my $guessp = 0;
   my $muxp = 1;
+  my $bwlimit = undef;
 
   while ($#ARGV >= 0) {
     $_ = shift @ARGV;
@@ -4061,9 +4355,42 @@ sub main() {
     elsif (m/^--?mux$/)      { $expect = $_; $muxp = 1; }
     elsif (m/^--?no-?mux$/)  { $expect = $_; $muxp = 0; }
     elsif (m/^--?guess$/)    { $guessp++; }
-    elsif (m/^-./)           { usage; }
-    else { 
-      s@^//@http://@s;
+    elsif (m/^--?bwlimit$/) {
+      #
+      # Many variant spellings are allowed:
+      #
+      # bits:  k, kb, kbps, kps, kb/s, k/s;
+      # bytes: K, Kb, Kbps, Kps, Kb/s, K/s,
+      #           KB, KBps, KBPS, KPS, KB/s, KB/S, K/S.
+      #
+      my $bit_suf  = '(b|bps|ps|b/s|/s)?$';
+      my $byte_suf = '(b|bps|ps|b/s|/s|B|Bps|BPS|PS|B/s|B/S|/S)?$';
+
+      $bwlimit = shift @ARGV;
+      if      ($bwlimit =~ s@ \s*  k $bit_suf  @@sx) {	# k bits
+        $bwlimit *= 1024;
+      } elsif ($bwlimit =~ s@ \s*  K $byte_suf @@sx) {	# K bytes
+        $bwlimit *= 1024 * 8;
+      } elsif ($bwlimit =~ s@ \s*  m $bit_suf  @@sx) {	# m bits
+        $bwlimit *= 1024 * 1024;
+      } elsif ($bwlimit =~ s@ \s*  M $byte_suf @@sx) {	# M bytes
+        $bwlimit *= 1024 * 1024 * 8;
+      } elsif ($bwlimit =~ s@ \s*  g $bit_suf  @@sx) {	# g bits
+        $bwlimit *= 1024 * 1024 * 1024;
+      } elsif ($bwlimit =~ s@ \s*  G $byte_suf @@sx) {	# G bytes
+        $bwlimit *= 1024 * 1024 * 1024 * 8;
+      } elsif ($bwlimit =~ s@ \s*    $bit_suf  @@sx) {	# bits
+        $bwlimit += 0;
+      } elsif ($bwlimit =~ s@ \s*    $byte_suf @@sx) {	# Bytes
+        $bwlimit /= 8;
+      } elsif ($bwlimit =~ m@^ \d+ ( \.\d+ )? $ @sx) {	# no units: k bits
+        $bwlimit *= 1024;
+      } else {
+        error ("unparsable units: $bwlimit");
+      }
+    } elsif (m/^-./)           { usage; }
+    else {
+      s@^//@https://@s;
       error ("not a Youtube, Vimeo or Tumblr URL: $_")
         unless (m@^(https?://)?
                    ([a-z]+\.)?
@@ -4091,13 +4418,13 @@ sub main() {
     exit (0);
   }
 
-  return do_cgi($muxp) if (defined ($ENV{REQUEST_URI}));
+  return do_cgi($muxp, $bwlimit) if (defined ($ENV{REQUEST_URI}));
 
   usage unless ($#urls >= 0);
   foreach (@urls) {
     my ($title, $fmt, $url) = @$_;
-    download_video_url ($url, $title, $prefix, 
-                        $size_p, $list_p, $progress_p, 0, $fmt);
+    download_video_url ($url, $title, $prefix,
+                        $size_p, $list_p, $bwlimit, $progress_p, 0, $fmt);
   }
 }
 
