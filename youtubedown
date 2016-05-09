@@ -65,7 +65,7 @@ use HTML::Entities;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.743 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.745 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -1477,6 +1477,8 @@ my %ciphers = (
   'player-en_US-vflG0wokn/base' => '16916 w62 r w38 s1 r s2 r w13 w12',# 26 Apr 2016
   'player-en_US-vfll6dEHf/base' => '16916 w62 r w38 s1 r s2 r w13 w12',# 27 Apr 2016
   'player-en_US-vflA_6ZRP/base' => '16918 w14 s1 r w10',          # 29 Apr 2016
+  'player-en_US-vflL5aRF-/base' => '16920 w42 r s1 r w30 r s2',   # 02 May 2016
+  'player-en_US-vflKklr93/base' => '16920 w42 r s1 r w30 r s2',   # 04 May 2016
 );
 
 
