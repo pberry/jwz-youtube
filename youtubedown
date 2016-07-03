@@ -9,8 +9,9 @@
 # software for any purpose.  It is provided "as is" without express or
 # implied warranty.
 #
-# Given a YouTube, Vimeo or Tumblr URL, downloads the corresponding MP4 file.
-# The name of the file will be derived from the title of the video.
+# Given a YouTube, Vimeo, Tumblr, Vine, Instagram or Twitter video URL,
+# downloads the corresponding MP4 file.  The name of the file will be derived
+# from the title of the video.
 #
 #  --title "STRING"  Use this as the title instead.
 #  --prefix "STRING" Prepend the title with this.
@@ -65,7 +66,7 @@ use HTML::Entities;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.749 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.778 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -785,7 +786,7 @@ sub video_file_size($) {
   my ($w, $h, $abr) = (0, 0, 0);
 
   ($w, $h) = ($1, $2)
-    if ($result =~ m/^\s*Stream #.* Video:.* (\d+)x(\d+),? /m);
+    if ($result =~ m/^\s*Stream \#.* Video:.* (\d+)x(\d+),? /m);
   $abr = $1
     if ($result =~ m@^\s*Duration:.* bitrate: ([\d.]+ *[kmb/s]+)@m);
 
@@ -1483,6 +1484,29 @@ my %ciphers = (
   'player-en_US-vflPykJ0g/base' => '16926 w58 r s3',              # 10 May 2016
   'player-en_US-vflw9bxTw/base' => '16926 w58 r s3',              # 11 May 2016
   'player-en_US-vflGdEImZ/base' => '16932 w69 w26 r w8 w22 s1',   # 12 May 2016
+  'player-en_US-vflTZ3kuV/base' => '16932 w69 w26 r w8 w22 s1',   # 19 May 2016
+  'player-en_US-vfl5u7dIk/base' => '16932 w69 w26 r w8 w22 s1',   # 19 May 2016
+  'player-en_US-vflGaNMBw/base' => '16932 w69 w26 r w8 w22 s1',   # 21 May 2016
+  'player-en_US-vfl6uEgGV/base' => '16941 r w36 s1 r w26 s1 w60', # 23 May 2016
+  'player-en_US-vflKZdm1L/base' => '16944 w25 s2 r',              # 24 May 2016
+  'player-en_US-vflNStq7e/base' => '16944 w25 s2 r',              # 25 May 2016
+  'player-en_US-vflAwQJsE/base' => '16945 w53 r w19 s3 w37',      # 31 May 2016
+  'player-en_US-vfl7FG-3v/base' => '16944 w25 s2 r',              # 02 Jun 2016
+  'player-en_US-vfl7vBziO/base' => '16944 w25 s2 r',              # 02 Jun 2016
+  'player-en_US-vflrmwhUy/base' => '16944 w25 s2 r',              # 04 Jun 2016
+  'player-en_US-vfljqy_st/base' => '16958 s3 w46 w64 w67 s2 r',   # 07 Jun 2016
+  'player-en_US-vflzxAejD/base' => '16959 s1 r w4 w67 s3 r w55 r s3',# 08 Jun 2016
+  'player-en_US-vflqpURrL/base' => '16960 r w65 r',               # 09 Jun 2016
+  'player-en_US-vflcUEb1U/base' => '16962 w54 s1 r w9 s1',        # 11 Jun 2016
+  'player-en_US-vflBUz8b9/base' => '16965 w1 r s2 w27',           # 13 Jun 2016
+  'player-en_US-vfl9bYNJa/base' => '16961 s1 r s1 r w35 r',       # 14 Jun 2016
+  'player-en_US-vflruV5iG/base' => '16966 w36 s2 w65 r s2 w11 w31',# 15 Jun 2016
+  'player-en_US-vfldefdPl/base' => '16961 s1 r s1 r w35 r',       # 15 Jun 2016
+  'player-en_US-vfl-nPja1/base' => '16968 w21 s1 w60 s2',         # 20 Jun 2016
+  'player-en_US-vflLyLvKU/base' => '16974 r w45 r',               # 23 Jun 2016
+  'player-en_US-vfl0Cqdyd/base' => '16976 w57 r w57 w38 s3 w47 s2',# 27 Jun 2016
+  'player-en_US-vflOfyD_m/base' => '16976 w57 r w57 w38 s3 w47 s2',# 28 Jun 2016
+  'player-en_US-vflAbrXV8/base' => '16976 w57 r w57 w38 s3 w47 s2',# 30 Jun 2016
 );
 
 
@@ -1610,7 +1634,7 @@ sub guess_cipher(;$$) {
   # might be:   , C = function(D) { ... }
   my ($fn2) = ($body =~ m@\b function \s+ \Q$fn\E \s* \( $v \)
                           \s* { ( .*? ) } @sx);
-     ($fn2) = ($body =~ m@(?: \b var \s+ | , \s* )
+     ($fn2) = ($body =~ m@(?: \b var \s+ | [,;] \s* )
                           \Q$fn\E \s* = \s* function \s* \( $v \)
                           \s* { ( .*? ) } @sx)
        unless $fn2;
@@ -2392,16 +2416,16 @@ sub load_vimeo_formats($$) {
 
   my $err = undef;
   if (!check_http_status ($id, $info_url, $http, 0)) {
-    ($err) = ($body =~ m@ { "message" : \s* " ( .+? ) " , @six);
+    ($err) = ($body =~ m@ \{ "message" : \s* " ( .+? ) " , @six);
     $err = "Private video" if ($err && $err =~ m/privacy setting/si);
     $err = $http . ($err ? ": $err" : "");
   } else {
     $http = '';  # 200
   }
 
-  my ($title)  = ($body =~ m@   "title" : \s* " (.+?) ", @six);
-  my ($files0) = ($body =~ m@ { "h264"  : \s* \{ ( .+? \} ) \} , @six);
-  my ($files1) = ($body =~ m@ { "vp6"   : \s* \{ ( .+? \} ) \} , @six);
+  my ($title)  = ($body =~ m@    "title" : \s* " (.+?) ", @six);
+  my ($files0) = ($body =~ m@ \{ "h264"  : \s* \{ ( .+? \} ) \} , @six);
+  my ($files1) = ($body =~ m@ \{ "vp6"   : \s* \{ ( .+? \} ) \} , @six);
   my ($files2) = ($body =~ m@   "progressive" : \s* \[ ( .+? \] ) \} @six);
   my $files    = ($files0 || '') . ($files1 || '') . ($files2 || '');
 
@@ -2410,8 +2434,8 @@ sub load_vimeo_formats($$) {
     if (!$err && !$title && !$files);
 
   if ($err) {
-    if ($verbose <= 0 && $err =~ m/Private/s) {
-      # With --quiet, just silently ignore private videos,
+    if ($verbose <= 0 && $err =~ m/Private|\b404\b/s) {
+      # With --quiet, just silently ignore private videos and 404s,
       # for "youtubefeed".
       exit (0);
     }
@@ -2428,7 +2452,7 @@ sub load_vimeo_formats($$) {
     my $i = 0;
     foreach my $f (split (/\},?\s*/, $files)) {
       next unless (length($f) > 50);
-      my ($fmt)  = ($f =~ m@^ \" (.+?) ": @six);
+      my ($fmt)  = ($f =~ m@^ \" (.+?) \": @six);
          ($fmt)  = ($f =~ m@^ \{ "profile": (\d+) @six) unless $fmt;
       my ($url2) = ($f =~ m@ "url"    : \s* " (.*?) " @six);
       my ($w)    = ($f =~ m@ "width"  : \s*   (\d+)   @six);
@@ -2438,7 +2462,7 @@ sub load_vimeo_formats($$) {
       print STDERR "$progname: $fmt: ${w}x$h: $url2\n"
         if ($verbose > 2);
 
-      my ($ext) = ($url2 =~ m@^[^?&]+\.([^./?&]+)([?&]|$)@s);
+      my ($ext) = ($url2 =~ m@ ^ [^?&]+ \. ( [^./?&]+ ) ( [?&] | $ ) @sx);
       $ext = 'mp4' unless $ext;
       my $ct = ($ext =~ m/^(flv|webm|3gpp?)$/s ? "video/$ext" :
                 $ext =~ m/^(mov)$/s            ? 'video/quicktime' :
@@ -2478,8 +2502,8 @@ sub load_tumblr_formats($$) {
 
   $body =~ s/^.* "posts" : \[ //six;
 
-  my ($title) = ($body =~ m@ "slug" : \s* " (.+?) " @six);
-  my ($year)  = ($body =~ m@ "date" : \s* " (\d{4})- @six);
+  my ($title) = ($body =~ m@ "slug" : \s* \" (.+?) \" @six);
+  my ($year)  = ($body =~ m@ "date" : \s* \" (\d{4})- @six);
 
   $title = munge_title (html_unquote ($title || ''));
 
@@ -2520,6 +2544,157 @@ sub load_tumblr_formats($$) {
   return $fmts;
 }
 
+
+# Returns a hash of:
+#  [ title: "T",
+#    year: "Y",
+#    0: [ ...video info... ],
+# Since Vine only offers one resolution.
+#
+sub load_vine_formats($$) {
+  my ($id, $url) = @_;
+
+  my ($http, $head, $body) = get_url ($url);
+  check_http_status ($id, $url, $http, 1);
+
+  my ($user)  = ($body =~ m@<meta \s+ property="twitter:author" \s+
+			   content="([^<>]*?)"@six);
+  my ($title) = ($body =~ m@<meta \s+ property="twitter:title" \s+
+			   content="([^<>]*?)"@six);
+  my ($src)   = ($body =~ m@<meta \s+ property="twitter:player:stream" \s+
+			   content="([^<>]*?)"@six);
+  my ($w)     = ($body =~ m@<meta \s+ property="twitter:image:width" \s+
+			   content="([^<>]*?)"@six);
+  my ($h)     = ($body =~ m@<meta \s+ property="twitter:image:height" \s+
+			   content="([^<>]*?)"@six);
+  my ($ct)    = ($body =~ m@<meta \s+
+                           property="twitter:player:stream:content_type" \s+
+			   content="([^<>]*n?)"@six);
+  my ($year) = ($body =~ m@ "datePublished": \s* \" (\d{4})- @six);
+
+  errorI ("$id: video not found")
+    unless ($src && $w && $h && $ct && $user && $title);
+
+  $title = "$user: $title";
+  $title = munge_title (html_unquote ($title || ''));
+  $ct =~ s/;.*//s;
+
+  my $fmts = {};
+
+  my $i = 0;
+  my %v = ( fmt  => $i,
+            url  => $src,
+            content_type => $ct,
+            w    => $w,
+            h    => $h,
+            # size => undef,
+            # abr  => undef,
+          );
+  $fmts->{$i} = \%v;
+
+  $fmts->{title} = $title;
+  $fmts->{year}  = $year;
+
+  return $fmts;
+}
+
+
+# Returns a hash of:
+#  [ title: "T",
+#    year: "Y",
+#    0: [ ...video info... ],
+# Since Instagram only offers one resolution.
+#
+sub load_instagram_formats($$) {
+  my ($id, $url) = @_;
+
+  my ($http, $head, $body) = get_url ($url);
+  check_http_status ($id, $url, $http, 1);
+
+  my ($title) = ($body =~ m@<meta \s+ property="og:title" \s+
+			   content="([^<>]*?)"@six);
+  my ($src)   = ($body =~ m@<meta \s+ property="og:video:secure_url" \s+
+			   content="([^<>]*?)"@six);
+  my ($w)     = ($body =~ m@<meta \s+ property="og:video:width" \s+
+			   content="([^<>]*?)"@six);
+  my ($h)     = ($body =~ m@<meta \s+ property="og:video:height" \s+
+			   content="([^<>]*?)"@six);
+  my ($ct)    = ($body =~ m@<meta \s+ property="og:video:type" \s+
+			   content="([^<>]*n?)"@six);
+  my ($year) = ($body =~ m@\bdatetime="(\d{4})-@six);
+
+  errorI ("$id: video not found")
+    unless ($src && $w && $h && $ct && $title);
+
+  $title = munge_title (html_unquote ($title || ''));
+  $ct =~ s/;.*//s;
+
+  my $fmts = {};
+
+  my $i = 0;
+  my %v = ( fmt  => $i,
+            url  => $src,
+            content_type => $ct,
+            w    => $w,
+            h    => $h,
+            # size => undef,
+            # abr  => undef,
+          );
+  $fmts->{$i} = \%v;
+
+  $fmts->{title} = $title;
+  $fmts->{year}  = $year;
+
+  return $fmts;
+}
+
+# Returns a hash of:
+#  [ title: "T",
+#    year: "Y",
+#    0: [ ...video info... ],
+# Since Twitter only offers one resolution.
+#
+sub load_twitter_formats($$) {
+  my ($id, $url) = @_;
+
+  my ($http, $head, $body) = get_url ($url);
+  check_http_status ($id, $url, $http, 1);
+  my ($title) = ($body =~ m@<meta \s+ property="og:title" \s+
+			   content="([^<>]*?)"@six);
+
+  $url = "https://twitter.com/i/videos/tweet/$id";
+  ($http, $head, $body) = get_url ($url);
+  check_http_status ($id, $url, $http, 1);
+
+  my ($id2) = ($body =~ m@/tweet_video\\?/([^<>&?.]+)@s);
+  errorI ("$id: video ID not found") unless ($id2);
+  my $src = "https://pbs.twimg.com/tweet_video/$id2.mp4";
+
+  $title =~ s/ on Twitter$//s;
+  $title = munge_title (html_unquote ($title || ''));
+
+  my $ct = 'image/mp4';
+  my ($w, $h) = (0, 0);
+  my $year = undef;
+
+  my $fmts = {};
+
+  my $i = 0;
+  my %v = ( fmt  => $i,
+            url  => $src,
+            content_type => $ct,
+            w    => $w,
+            h    => $h,
+            # size => undef,
+            # abr  => undef,
+          );
+  $fmts->{$i} = \%v;
+
+  $fmts->{title} = $title;
+  $fmts->{year}  = $year;
+
+  return $fmts;
+}
 
 
 # Return the year at which this video was uploaded.
@@ -2599,8 +2774,11 @@ sub pick_download_format($$$$$) {
   }
 
   if ($site eq 'vimeo' ||
-      $site eq 'tumblr') {
-    # On Vimeo and Tumblr, just pick the entry with the largest size
+      $site eq 'tumblr' ||
+      $site eq 'vine' ||
+      $site eq 'instagram' ||
+      $site eq 'twitter') {
+    # On these sites, just pick the entry with the largest size
     # and/or resolution.
 
     # No muxing needed on Vimeo
@@ -2726,6 +2904,8 @@ sub pick_download_format($$$$$) {
    308 => { v => 'webm', w => 2560, h => 1440, a => undef               },
    313 => { v => 'webm', w => 3840, h => 2160, a => undef               },
    315 => { v => 'webm', w => 3840, h => 2160, a => undef               },
+   327 => { v => undef,                        a => 'm4a', abr => 128, c=>5.1 },
+   339 => { v => undef,                        a => 'vor', abr => 170, c=>5.1 },
   );
   #
   # The table on https://en.wikipedia.org/wiki/YouTube#Quality_and_formats
@@ -2866,7 +3046,9 @@ sub pick_download_format($$$$$) {
   #
   #   https://www.youtube.com/watch?v=dC_nFgJAcuQ
   #   2-Dec-2015: First sighting of 5.1 stereo formats 256 and 258.
-
+  #
+  #   https://www.youtube.com/watch?v=vBtlUl-Xh5w
+  #   30-Jun-2016: First sighting of 5.1 stereo formats 327 and 339.
 
   # Divide %known_formats into muxed, video-only and audio-only lists.
   #
@@ -3086,7 +3268,7 @@ sub munge_title($) {
 
   return 'Untitled' unless defined($title);
 
-  sub unihex($) {
+  sub unihex($;) {
     my ($c) = @_;
     $c = hex($c);
     my $s = chr($c);
@@ -3120,10 +3302,10 @@ sub munge_title($) {
 
   $title =~ s/[\x{2012}-\x{2013}]+/-/gs;	# various dashes
   $title =~ s/[\x{2014}-\x{2015}]+/--/gs;	# various long dashes
-  $title =~ s/\x{2018}+/`/gs;			# backquote
-  $title =~ s/\x{2019}+/'/gs;			# quote
-  $title =~ s/[\x{201c}\x{201d}]+/"/gs;		# ldquo, rdquo
-  $title =~ s/`/'/gs;
+  $title =~ s/\x{2018}+/\`/gs;			# backquote
+  $title =~ s/\x{2019}+/\'/gs;			# quote
+  $title =~ s/[\x{201c}\x{201d}]+/\"/gs;	# ldquo, rdquo
+  $title =~ s/\`/\'/gs;
 
   $title =~ s/\\//gs; # I think we can just omit other backslashes entirely.
 
@@ -3145,7 +3327,7 @@ sub munge_title($) {
                        HD | TV | HDTV | HQ | 720\s*p? | 1080\s*p? | 4K |
                        High [-\s]* Qual (ity)? 
                      ) |
-                     FM('s)? |
+                     FM(\'s)? |
                      EP s? (?>[\s\.\#]*) (?!\d+) |   # allow "episode" usage
                      MV | performance |
                      SXSW ( \s* Music )? ( \s* \d{4} )? |
@@ -3403,7 +3585,7 @@ sub munge_title($) {
 # Does any version of the file exist with the usual video suffixes?
 # Returns the one that exists.
 #
-sub file_exists_with_suffix($) {
+sub file_exists_with_suffix($;) {
   my ($f) = @_;
   foreach my $ext (@video_extensions) {
     my $ff = "$f.$ext";
@@ -3562,8 +3744,10 @@ sub cgi_output($$$$@) {
 
 # There are so many ways to specify URLs of videos... Turn them all into
 # something sane and parsable.
+#
+# Duplicated in youtubefeed.
 
-sub canonical_url($) {
+sub canonical_url($;) {
   my ($url) = @_;
 
   # Forgive pinheaddery.
@@ -3644,30 +3828,30 @@ sub canonical_url($) {
   } elsif ($url =~
            m@^https?://(?:[a-z]+\.)?(vimeo)\.com/(?:video/|m/)?(\d+)@s) {
     ($site, $id) = ($1, $2);
-    $url = "https://www.$site.com/$id";
+    $url = "https://$site.com/$id";
 
   # Vimeo /videos/NNNNNN URLs.
   } elsif ($url =~ m@^https?://(?:[a-z]+\.)?(vimeo)\.com/.*/videos/(\d+)@s) {
     ($site, $id) = ($1, $2);
-    $url = "https://www.$site.com/$id";
+    $url = "https://$site.com/$id";
 
   # Vimeo /channels/name/NNNNNN URLs.
   # Vimeo /ondemand/name/NNNNNN URLs.
   } elsif ($url =~
            m@^https?://(?:[a-z]+\.)?(vimeo)\.com/[^/]+/[^/]+/(\d+)@s) {
     ($site, $id) = ($1, $2);
-    $url = "https://www.$site.com/$id";
+    $url = "https://$site.com/$id";
 
   # Vimeo /album/NNNNNN/video/MMMMMM
   } elsif ($url =~
            m@^https?://(?:[a-z]+\.)?(vimeo)\.com/album/\d+/video/(\d+)@s) {
     ($site, $id) = ($1, $2);
-    $url = "https://www.$site.com/$id";
+    $url = "https://$site.com/$id";
 
   # Vimeo /moogaloop.swf?clip_id=NNNNN
   } elsif ($url =~ m@^https?://(?:[a-z]+\.)?(vimeo)\.com/.*clip_id=(\d+)@s) {
     ($site, $id) = ($1, $2);
-    $url = "https://www.$site.com/$id";
+    $url = "https://$site.com/$id";
 
   # Tumblr /video/UUU/NNNNN
   } elsif ($url =~
@@ -3683,6 +3867,26 @@ sub canonical_url($) {
     ($user, $site, $id) = ($1, $2, $3);
     $site = lc($site);
     $url = "https://$user.$site.com/post/$id";
+
+  # Vine /v/NNNNN
+  } elsif ($url =~ m@^https?://([-_a-z]+\.)?(vine)\.co/v/([^/?&]+)@si) {
+    (undef, $site, $id) = ($1, $2, $3);
+    $site = lc($site);
+    $url = "https://$site.co/v/$id";
+
+  # Instagram /p/NNNNN
+  } elsif ($url =~ m@^https?://([-_a-z]+\.)?(instagram)\.com/p/([^/?&]+)@si) {
+    (undef, $site, $id) = ($1, $2, $3);
+    $site = lc($site);
+    $url = "https://www.$site.com/p/$id";
+
+  # Twitter /USER/status/NNNNN
+  } elsif ($url =~ m@^https?://([-_a-z]+\.)?(twitter)\.com/([^/?&]+)
+                     /status/([^/?&]+)@six) {
+    my $user;
+    (undef, $site, $user, $id) = ($1, $2, $3, $4);
+    $site = lc($site);
+    $url = "https://$site.com/$user/status/$id";
 
   } else {
     error ("unparsable URL: $url");
@@ -3809,7 +4013,7 @@ sub mux_downloaded_files($$$$$$) {
 }
 
 
-sub content_type_ext($) {
+sub content_type_ext($;) {
   my ($ct) = @_;
   if    ($ct =~ m@/(x-)?flv$@si)  { return 'flv';  }
   elsif ($ct =~ m@/(x-)?webm$@si) { return 'webm'; }
@@ -3820,7 +4024,7 @@ sub content_type_ext($) {
 }
 
 
-sub download_video_url($$$$$$$$$) {
+sub download_video_url($$$$$$$$$;) {
   my ($url, $title, $prefix, $size_p, $list_p,
       $bwlimit, $progress_p, $cgi_p, $force_fmt) = @_;
 
@@ -3903,9 +4107,12 @@ sub download_video_url($$$$$$$$$) {
   # video in separate URLs. Get the list of all possible downloadable video
   # formats.
   #
-  my $fmts = ($site eq 'youtube' ? load_youtube_formats ($id, $url) :
-              $site eq 'vimeo'   ? load_vimeo_formats ($id, $url) :
-              $site eq 'tumblr'  ? load_tumblr_formats ($id, $url) :
+  my $fmts = ($site eq 'youtube'   ? load_youtube_formats ($id, $url) :
+              $site eq 'vimeo'     ? load_vimeo_formats ($id, $url) :
+              $site eq 'tumblr'    ? load_tumblr_formats ($id, $url) :
+              $site eq 'vine'      ? load_vine_formats ($id, $url) :
+              $site eq 'instagram' ? load_instagram_formats ($id, $url) :
+              $site eq 'twitter'   ? load_twitter_formats ($id, $url) :
               error ("$id: unknown site: $site"));
 
   # Set the title unless it was specified on the command line with --title.
@@ -4103,7 +4310,7 @@ sub download_youtube_playlist($$$$$$$$$$) {
   my $i = 0;
   $body =~ s@<A \b (.*?) > \s* ([^<>]*?) \s* </A> @{
     my ($href, $t2) = ($1, $2);
-    (undef, $href) = ($href =~ m% \b href \s* = \s* (["'])(.*?)\1%six);
+    (undef, $href) = ($href =~ m% \b href \s* = \s* ([\"\'])(.*?)\1%six);
     if ($href && $t2) {
       $href = html_unquote($href);
       if ($href =~ m%[?&]v=([^?&]+)%si) {
@@ -4397,7 +4604,8 @@ sub main() {
     } elsif (m/^-./)           { usage; }
     else {
       s@^//@https://@s;
-      error ("not a Youtube, Vimeo or Tumblr URL: $_")
+      error ("not a Youtube, Vimeo, Tumblr, Vine," .
+             " Instagram or Twitter URL: $_")
         unless (m@^(https?://)?
                    ([a-z]+\.)?
                    ( youtube(-nocookie)?\.com/ |
@@ -4406,6 +4614,9 @@ sub main() {
                      google\.com/ .* service=youtube |
                      youtube\.googleapis\.com
                      tumblr\.com/ |
+                     vine\.co/ |
+                     instagram\.com/ |
+                     twitter\.com/ |
                    )@six);
       $fmt = 'mux' if ($muxp && !defined($fmt));
       usage if (defined($fmt) && $fmt !~ m/^\d+|all|mux$/s);

@@ -38,7 +38,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.32 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.37 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -65,28 +65,28 @@ sub html_unquote($) {
 
 # Duplicated in youtubedown.
 #
-sub canonical_url($) {
+sub canonical_url($;) {
   my ($url) = @_;
 
   # Forgive pinheaddery.
   $url =~ s@&amp;@&@gs;
   $url =~ s@&amp;@&@gs;
 
-  # Add missing "http:"
-  $url = "http://$url" unless ($url =~ m@^https?://@si);
+  # Add missing "https:"
+  $url = "https://$url" unless ($url =~ m@^https?://@si);
 
   # Rewrite youtu.be URL shortener.
-  $url =~ s@^https?://([a-z]+\.)?youtu\.be/@http://youtube.com/v/@si;
+  $url =~ s@^https?://([a-z]+\.)?youtu\.be/@https://youtube.com/v/@si;
 
   # Rewrite Vimeo URLs so that we get a page with the proper video title:
   # "/...#NNNNN" => "/NNNNN"
   $url =~ s@^(https?://([a-z]+\.)?vimeo\.com/)[^\d].*\#(\d+)$@$1$3@s;
 
-  $url =~ s@^https:@http:@s;	# No https.
+  $url =~ s@^http:@https:@s;	# Always https.
 
   my ($id, $site, $playlist_p);
 
-  # Youtube /view_play_list?p= or /p/ URLs. 
+  # Youtube /view_play_list?p= or /p/ URLs.
   if ($url =~ m@^https?://(?:[a-z]+\.)?(youtube) (?:-nocookie)? \.com/
                 (?: view_play_list\?p= |
                     p/ |
@@ -97,11 +97,11 @@ sub canonical_url($) {
                 )
                 ([^<>?&,]+) ($|&) @sx) {
     ($site, $id) = ($1, $2);
-    $url = "http://www.$site.com/view_play_list?p=$id";
+    $url = "https://www.$site.com/view_play_list?p=$id";
     $playlist_p = 1;
 
   # Youtube "/verify_age" URLs.
-  } elsif ($url =~ 
+  } elsif ($url =~
            m@^https?://(?:[a-z]+\.)?(youtube) (?:-nocookie)? \.com/+
 	     .* next_url=([^&]+)@sx ||
            $url =~ m@^https?://(?:[a-z]+\.)?google\.com/
@@ -117,9 +117,9 @@ sub canonical_url($) {
       $url = url_unquote($1);
       $url =~ s@&.*$@@s;
     }
-    $url = "http://www.$site.com$url" if ($url =~ m@^/@s);
+    $url = "https://www.$site.com$url" if ($url =~ m@^/@s);
 
-  # Youtube /watch/?v= or /watch#!v= or /v/ URLs. 
+  # Youtube /watch/?v= or /watch#!v= or /v/ URLs.
   } elsif ($url =~ m@^https?:// (?:[a-z]+\.)?
                      (youtube) (?:-nocookie)? (?:\.googleapis)? \.com/+
                      (?: (?: watch/? )? (?: \? | \#! ) v= |
@@ -130,40 +130,61 @@ sub canonical_url($) {
                      )
                      ([^<>?&,\'\"]+) ($|[?&]) @sx) {
     ($site, $id) = ($1, $2);
-    $url = "http://www.$site.com/watch?v=$id";
+    $url = "https://www.$site.com/watch?v=$id";
 
   # Youtube "/user" and "/profile" URLs.
   } elsif ($url =~ m@^https?://(?:[a-z]+\.)?(youtube) (?:-nocookie)? \.com/
                      (?:user|profile).*\#.*/([^&/]+)@sx) {
     $site = $1;
     $id = url_unquote($2);
-    $url = "http://www.$site.com/watch?v=$id";
+    $url = "https://www.$site.com/watch?v=$id";
     error ("unparsable user next_url: $url") unless $id;
 
   # Vimeo /NNNNNN URLs
   # and player.vimeo.com/video/NNNNNN
   # and vimeo.com/m/NNNNNN
-  } elsif ($url =~ 
+  } elsif ($url =~
            m@^https?://(?:[a-z]+\.)?(vimeo)\.com/(?:video/|m/)?(\d+)@s) {
     ($site, $id) = ($1, $2);
-    $url = "http://www.$site.com/$id";
+    $url = "https://$site.com/$id";
 
   # Vimeo /videos/NNNNNN URLs.
   } elsif ($url =~ m@^https?://(?:[a-z]+\.)?(vimeo)\.com/.*/videos/(\d+)@s) {
     ($site, $id) = ($1, $2);
-    $url = "http://www.$site.com/$id";
+    $url = "https://$site.com/$id";
 
   # Vimeo /channels/name/NNNNNN URLs.
   # Vimeo /ondemand/name/NNNNNN URLs.
-  } elsif ($url =~ 
+  } elsif ($url =~
            m@^https?://(?:[a-z]+\.)?(vimeo)\.com/[^/]+/[^/]+/(\d+)@s) {
     ($site, $id) = ($1, $2);
-    $url = "http://www.$site.com/$id";
+    $url = "https://$site.com/$id";
+
+  # Vimeo /album/NNNNNN/video/MMMMMM
+  } elsif ($url =~
+           m@^https?://(?:[a-z]+\.)?(vimeo)\.com/album/\d+/video/(\d+)@s) {
+    ($site, $id) = ($1, $2);
+    $url = "https://$site.com/$id";
 
   # Vimeo /moogaloop.swf?clip_id=NNNNN
   } elsif ($url =~ m@^https?://(?:[a-z]+\.)?(vimeo)\.com/.*clip_id=(\d+)@s) {
     ($site, $id) = ($1, $2);
-    $url = "http://www.$site.com/$id";
+    $url = "https://$site.com/$id";
+
+  # Tumblr /video/UUU/NNNNN
+  } elsif ($url =~
+           m@^https?://[-_a-z]+\.(tumblr)\.com/video/([^/]+)/(\d{8,})/@si) {
+    my $user;
+    ($site, $user, $id) = ($1, $2, $3);
+    $site = lc($site);
+    $url = "https://$user.$site.com/post/$id";
+
+  # Tumblr /post/NNNNN
+  } elsif ($url =~ m@^https?://([-_a-z]+)\.(tumblr)\.com/.*?/(\d{8,})/@si) {
+    my $user;
+    ($user, $site, $id) = ($1, $2, $3);
+    $site = lc($site);
+    $url = "https://$user.$site.com/post/$id";
 
   } else {
     return ();
@@ -224,9 +245,14 @@ sub scan_feed($$) {
     sleep (1 + $count);
   }
 
+  if ($body eq '') {
+    print STDERR "$progname: $url empty\n" if ($verbose);
+    return ('', 0);
+  }
+
   utf8::decode ($body);  # Pack multi-byte UTF-8 back into wide chars.
 
-  error ("looks like HTML: $url") if ($body =~ m/<HEAD\b/si);
+  error ("looks like HTML: $url") if ($body =~ m/^<(HEAD|!DOCTYPE)\b/si);
 
   $body =~ s/[\r\n]/ /gsi;
   $body =~ s/(<(entry|item)\b)/\n$1/gsi;
@@ -280,7 +306,7 @@ sub scan_feed($$) {
     # promonews.tv doesn't include the videos in their RSS feed!
     # Pull it from the web site instead.
     #
-    if ($url =~ m/promonews/s) {
+    if ($url =~ m/promonews|antville/s) {
       print STDERR "$progname: reading $link\n" if ($verbose > 1);
 
       $count = 0;
