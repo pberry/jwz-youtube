@@ -66,7 +66,7 @@ use HTML::Entities;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.813 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.837 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -714,6 +714,7 @@ sub get_url($;$$$$$) {
   my $max_redirects  = 20;
 
   do {
+    $url =~ s/\#.*$//s;  # HTML anchor
     my ($http, $head, $body) =
       get_url_2 ($url, $referer, $to_file, $bwlimit, $max_bytes, $progress_p);
 
@@ -724,7 +725,7 @@ sub get_url($;$$$$$) {
 
       my ( $location ) = m@^location:[ \t]*(.*)$@im;
       if ( $location ) {
-        $location =~ s/[\r\n]$//;
+        $location =~ s/[\r\n]$//s;
 
         print STDERR "$progname: redirect from $url to $location\n"
           if ($verbose > 3);
@@ -1561,6 +1562,29 @@ my %ciphers = (
   'player-en_US-vflwEMtjy/base' => '17056 r s3 r w20 s3 r s2 r',  # 13 Sep 2016
   'player-en_US-vflIb3VDh/base' => '17056 r s3 r w20 s3 r s2 r',  # 14 Sep 2016
   'player-en_US-vflGe_KH9/base' => '17056 r s3 r w20 s3 r s2 r',  # 15 Sep 2016
+  'player-en_US-vflOrSoUx/base' => '17060 w35 r s3 r w55 s3 w2',  # 20 Sep 2016
+  'player-en_US-vflhmEPlj/base' => '17064 w70 s3 w7 s1 w68 s1 w64',# 21 Sep 2016
+  'player-en_US-vfl-naOSO/base' => '17066 r w30 w40 w48 r s1 w53 s3 r',# 22 Sep 2016
+  'player-en_US-vflHlG7su/base' => '17068 r w35 s2',              # 26 Sep 2016
+  'player-en_US-vfl8j0dbL/base' => '17067 w63 s3 w38 s3 w16 w67 s3 r s1',# 26 Sep 2016
+  'player-en_US-vflw2cgEp/base' => '17067 w63 s3 w38 s3 w16 w67 s3 r s1',# 27 Sep 2016
+  'player-en_US-vflhPhaA1/base' => '17071 w15 s3 r s2 w4 s2 r',   # 28 Sep 2016
+  'player-en_US-vflK2tmSr/base' => '17072 s3 r s3 r w20',         # 29 Sep 2016
+  'player-en_US-vflKBaLr4/base' => '17072 s3 r s3 r w20',         # 30 Sep 2016
+  'player-en_US-vflssZQ6P/base' => '17074 r w9 r s3 r s3 w51 r',  # 03 Oct 2016
+  'player-en_US-vflXU8Lcz/base' => '17079 r w45 s1 r s2 r s2 r w3',# 05 Oct 2016
+  'player-en_US-vflOj6Vz8/base' => '17079 r w45 s1 r s2 r s2 r w3',# 07 Oct 2016
+  'player-en_US-vflQcYs5w/base' => '17079 r w45 s1 r s2 r s2 r w3',# 07 Oct 2016
+  'player-en_US-vfl-E2vny/base' => '17082 r w9 s1 r s1 w66 w30 r w48',# 11 Oct 2016
+  'player-en_US-vflabgyIE/base' => '17086 s2 w6 r s3 w53 r w46 w56',# 12 Oct 2016
+  'player-en_US-vflkqCvzc/base' => '17086 s2 w6 r s3 w53 r w46 w56',# 13 Oct 2016
+  'player-en_US-vflI-HtJG/base' => '17089 w11 w51 r s2 w32 s1',   # 17 Oct 2016
+  'player-en_US-vflMRpBY0/base' => '17092 s1 w68 r w17 w3 s1 w48 r s2',# 18 Oct 2016
+  'player-en_US-vflkGN22k/base' => '17092 s1 w68 r w17 w3 s1 w48 r s2',# 18 Oct 2016
+  'player-en_US-vflEz7zqU/base' => '17093 r s1 w60',              # 21 Oct 2016
+  'player-en_US-vflTBNOIW/base' => '17098 s1 r w37 r s1 w53 r s2 r',# 25 Oct 2016
+  'player-en_US-vflx7_SPL/base' => '17098 s1 r w37 r s1 w53 r s2 r',# 26 Oct 2016
+  'player-en_US-vflvtarAT/base' => '17098 s1 r w37 r s1 w53 r s2 r',# 28 Oct 2016
 );
 
 
@@ -2554,6 +2578,52 @@ sub load_vimeo_formats($$) {
 #
 sub load_tumblr_formats($$) {
   my ($id, $url) = @_;
+
+  # The old code doesn't work any more: I guess they locked down the 
+  # video info URL to require an API key.  So we can just grab the
+  # "400" version, I guess...
+  {
+    my ($http, $head, $body) = get_url ($url);
+    check_http_status ($id, $url, $http, 1);
+
+    # Incestuous
+    if ($body =~ m@<iframe[^<>]*?src="(https?://vine.co/v/[^<>\"/]+)@si) {
+      return load_vine_formats ('vine', $1);
+    }
+
+    my ($title) = ($body =~ m@<title>\s*(.*?)</title>@six);
+    my ($img)   = ($body =~ m@<meta \s+ property="og:image" \s+
+			      content="([^<>]*?)"@six);
+    error ("no title: $url\n$body") unless $title;
+    error ("no og:image: $url") unless $img;
+    $img =~ s@_[^/._]+\.[a-z]+$@_480.mp4@si;
+    error ("couldn't find video URL: $url")
+      unless ($img =~ m/\.mp4$/s);
+
+    $img =~ s@^https?://[^/]+@https://vt.tumblr.com@si;
+
+    $title = munge_title (html_unquote ($title || ''));
+    my $fmts = {};
+    my $i = 0;
+    my ($w, $h) = (0, 0);
+    my %v = ( fmt  => $i,
+              url  => $img,
+              content_type => 'video/mp4',
+              w    => $w,
+              h    => $h,
+              # size => undef,
+              # abr  => undef,
+            );
+    $fmts->{$i} = \%v;
+
+    $fmts->{title} = $title;
+    # $fmts->{year}  = $year;
+
+    return $fmts;
+  }
+
+  # The following no longer works.
+
 
   my ($host) = ($url =~ m@^https?://([^/]+)@si);
   my $info_url = "https://api.tumblr.com/v2/blog/$host/posts/video?id=$id";
@@ -3925,33 +3995,33 @@ sub canonical_url($;) {
 
   # Tumblr /video/UUU/NNNNN
   } elsif ($url =~
-           m@^https?://[-_a-z]+\.(tumblr)\.com/video/([^/]+)/(\d{8,})/@si) {
+           m@^https?://[-_a-z\d]+\.(tumblr)\.com/video/([^/]+)/(\d{8,})/@si) {
     my $user;
     ($site, $user, $id) = ($1, $2, $3);
     $site = lc($site);
     $url = "https://$user.$site.com/post/$id";
 
   # Tumblr /post/NNNNN
-  } elsif ($url =~ m@^https?://([-_a-z]+)\.(tumblr)\.com/.*?/(\d{8,})/@si) {
+  } elsif ($url =~ m@^https?://([-_a-z\d]+)\.(tumblr)\.com/.*?/(\d{8,})/@si) {
     my $user;
     ($user, $site, $id) = ($1, $2, $3);
     $site = lc($site);
     $url = "https://$user.$site.com/post/$id";
 
   # Vine /v/NNNNN
-  } elsif ($url =~ m@^https?://([-_a-z]+\.)?(vine)\.co/v/([^/?&]+)@si) {
+  } elsif ($url =~ m@^https?://([-_a-z\d]+\.)?(vine)\.co/v/([^/?&]+)@si) {
     (undef, $site, $id) = ($1, $2, $3);
     $site = lc($site);
     $url = "https://$site.co/v/$id";
 
   # Instagram /p/NNNNN
-  } elsif ($url =~ m@^https?://([-_a-z]+\.)?(instagram)\.com/p/([^/?&]+)@si) {
+  } elsif ($url =~ m@^https?://([-_a-z\d]+\.)?(instagram)\.com/p/([^/?&]+)@si) {
     (undef, $site, $id) = ($1, $2, $3);
     $site = lc($site);
     $url = "https://www.$site.com/p/$id";
 
   # Twitter /USER/status/NNNNN
-  } elsif ($url =~ m@^https?://([-_a-z]+\.)?(twitter)\.com/([^/?&]+)
+  } elsif ($url =~ m@^https?://([-_a-z\d]+\.)?(twitter)\.com/([^/?&]+)
                      /status/([^/?&]+)@six) {
     my $user;
     (undef, $site, $user, $id) = ($1, $2, $3, $4);

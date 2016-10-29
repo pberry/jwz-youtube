@@ -38,7 +38,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.38 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.39 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -514,12 +514,10 @@ sub pull_feeds($$) {
   open ($hist_fd, '+>>', $hist)	|| error ("writing $hist: $!");
   if (! flock ($hist_fd, LOCK_EX | LOCK_NB)) {
     my $age = time() - (stat($hist_fd))[9];
-    if ($verbose == 0 && $age < 60 * 60 * 2) {
-      exit(1);  # If we haven't been locked that long, don't whine.
-    } else {
-      $age = sprintf("%d:%02d:%02d", $age/60/60, ($age/60)%60, $age%60);
-      error ("already locked for $age: $hist");
-    }
+    # If we haven't been locked that long, exit silently.
+    exit (1) if ($verbose == 0 && $age < 60 * 60 * 2);
+    $age = sprintf("%d:%02d:%02d", $age/60/60, ($age/60)%60, $age%60);
+    error ("already locked for $age: $hist");
   }
 
   seek ($hist_fd, 0, 0)         || error ("rewinding $hist: $!");
