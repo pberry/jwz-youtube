@@ -66,7 +66,7 @@ use HTML::Entities;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.837 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.872 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -1585,6 +1585,39 @@ my %ciphers = (
   'player-en_US-vflTBNOIW/base' => '17098 s1 r w37 r s1 w53 r s2 r',# 25 Oct 2016
   'player-en_US-vflx7_SPL/base' => '17098 s1 r w37 r s1 w53 r s2 r',# 26 Oct 2016
   'player-en_US-vflvtarAT/base' => '17098 s1 r w37 r s1 w53 r s2 r',# 28 Oct 2016
+  'player-en_US-vflG26Hhi/base' => '17102 w32 w26 s1 r w20',      # 30 Oct 2016
+  'player-en_US-vfliKSBJe/base' => '17104 s1 r s1 r s3 w29 s2 w24',# 30 Oct 2016
+  'player-en_US-vfl9TjB9H/base' => '17105 w8 r w59 w68',          # 01 Nov 2016
+  'player-en_US-vfle0WwUC/base' => '17108 s2 w58 w59',            # 07 Nov 2016
+  'player-en_US-vflcQt09B/base' => '17110 w10 r w29 r w46 r w10 s2',# 07 Nov 2016
+  'player-en_US-vfllAQuZd/base' => '17113 s1 r s3 w44 w63 r',     # 09 Nov 2016
+  'player-en_US-vflgFv_Kx/base' => '17114 s2 w31 s2 r s3 r w60 s2',# 10 Nov 2016
+  'player-en_US-vflZebs2S/base' => '17120 w48 r w8 w28 s2 w22 w61 s2 w59',# 15 Nov 2016
+  'player-en_US-vflSldmkq/base' => '17121 s3 w13 w41 s1 w51 r w53 r w57',# 18 Nov 2016
+  'player-en_US-vflydz95C/base' => '17133 s2 r w59 r s1 w16 s1',  # 29 Nov 2016
+  'player-en_US-vflzQdL0P/base' => '17133 s2 r w59 r s1 w16 s1',  # 01 Dec 2016
+  'player-en_US-vflDkHeWE/base' => '17128 r s3 r w26 s1 r w10',   # 02 Dec 2016
+  'player-en_US-vflr_3iyV/base' => '17135 r w40 s2 r s1 r w61',   # 05 Dec 2016
+  'player-en_US-vflyIX2li/base' => '17141 w58 r s1 w66 r',        # 06 Dec 2016
+  'player-en_US-vfl8r3fjW/base' => '17140 w17 s3 w44 w13 r w33 w39',# 07 Dec 2016
+  'player-en_US-vfldNN9oa/base' => '17140 w17 s3 w44 w13 r w33 w39',# 10 Dec 2016
+  'player-en_US-vflK2s6tX/base' => '17141 w58 r s1 w66 r',        # 13 Dec 2016
+  'player-en_US-vflFKNtIl/base' => '17147 s2 w21 r s1 r s2 r',    # 14 Dec 2016
+  'player-en_US-vfljAVcXG/base' => '17149 s2 w51 r w62 w44 w65',  # 15 Dec 2016
+  'player-en_US-vflxP8f0T/base' => '17151 w47 s1 r w21 r w16 r',  # 19 Dec 2016
+  'player-en_US-vfla6wgHS/base' => '17151 w47 s1 r w21 r w16 r',  # 20 Dec 2016
+  'player-en_US-vflz_1lv2/base' => '17170 s2 r s2 w25 r s3 r',    # 05 Jan 2017
+  'player-en_US-vflsagga9/base' => '17175 s3 r w23 r w33 w51 s1 r w26',# 09 Jan 2017
+  'player-en_US-vflC029_L/base' => '17176 s2 r w17 r s2',         # 12 Jan 2017
+  'player-en_US-vfl4x5gM8/base' => '17177 r s2 r w5 s1 w7 r',     # 13 Jan 2017
+  'player-en_US-vflR62D9G/base' => '17177 r s2 r w5 s1 w7 r',     # 15 Jan 2017
+  'player-en_US-vflbh8HdB/base' => '17180 s2 w43 s2 r w35 r',     # 17 Jan 2017
+  'player-en_US-vflkZ4r_7/base' => '17180 s2 w43 s2 r w35 r',     # 19 Jan 2017
+  'player-en_US-vflamKXEP/base' => '17184 w42 w20 r w4 r s2',     # 20 Jan 2017
+  'player-en_US-vflHoC0VQ/base' => '17184 w42 w20 r w4 r s2',     # 20 Jan 2017
+  'player-en_US-vfl8Smq8T/base' => '17186 w37 w52 s3 w69 r',      # 23 Jan 2017
+  'player-en_US-vflNaXsht/base' => '17190 s1 r s2 r',             # 25 Jan 2017
+  'player-en_US-vflQBHHdn/base' => '17190 s1 r s2 r',             # 26 Jan 2017
 );
 
 
@@ -2306,7 +2339,7 @@ sub load_youtube_formats($$) {
              ($urlmap && $urlmap2 && $title) ||
              (defined($embed_p) && !$embed_p));
 
-    if ($verbose > 0) {
+    if ($verbose > 1) {
       if (!$urlmap2) {
         print STDERR "$progname: $id: no adaptive_fmts, retrying...\n";
       } elsif (! $urlmap) {

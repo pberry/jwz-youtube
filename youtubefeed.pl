@@ -38,7 +38,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.39 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.40 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -270,6 +270,7 @@ sub scan_feed($$) {
   my $total = 0;
   foreach (@items) {
     my ($title) = m@<title\b[^<>]*>([^<>]*)@s;
+    my ($author) = m@<dc:creator\b[^<>]*>([^<>]*)@s;
     my ($link) = m@<link\b[^<>]*>\s*([^<>]*)@s;
        ($link) = m@<link\b[^<>]*href=[\"\']?([^<>\"\"]+)@si unless $link;
        ($link) = m@<media:content\b[^<>]*url=[\"\']?([^<>\"\"]+)@si
@@ -283,24 +284,28 @@ sub scan_feed($$) {
        ($html) = m@<media:description\b[^<>]*>\s*(.*?)</media@s unless ($html);
     $html = '' unless $html;
 
-    $title = '' unless $title;
-    $title =~ s@<!\[CDATA\[\s*(.*?)\s*\]*>*\s*(</title>\s*)?$@$1@gs;
-
-    $html =~ s@<!\[CDATA\[\s*(.*)\s*\]\]>@$1@gs;
+    foreach ($title, $author, $html) {
+      $_ = '' unless $_;
+      $_ =~ s@<!\[CDATA\[\s*(.*)\s*\]\]>@$1@gs;
+    }
 
     $html = "$link\n$html" if $link;
     $html = "$guid\n$html" if $guid;
 
-    $html  = html_unquote($html);  # RSS to HTML
-    $title = html_unquote($title); # RSS to HTML
+    $title  = html_unquote($title); # RSS to HTML
+    $author = html_unquote($author);
+    $html   = html_unquote($html);
 
-    $title = html_unquote($title); # HTML to Unicrud
+    $title  = html_unquote($title); # HTML to Unicrud
+    $author = html_unquote($author);
     # Don't convert $html, we still need to parse it.
 
-    $title =~ s/ \\[ux] { ([a-z0-9]+)   } / chr(hex($1)) /gsexi;  # \u{XXXXXX}
-    $title =~ s/ \\[ux]   ([a-z0-9]{4})   / chr(hex($1)) /gsexi;  # \uXXXX
+    foreach ($title, $author) {
+      s/ \\[ux] { ([a-z0-9]+)   } / chr(hex($1)) /gsexi;  # \u{XXXXXX}
+      s/ \\[ux]   ([a-z0-9]{4})   / chr(hex($1)) /gsexi;  # \uXXXX
 
-    $title =~ s/\xA0/ /gs;  # &nbsp;
+      s/\xA0/ /gs;  # &nbsp;
+    }
 
 
     # promonews.tv doesn't include the videos in their RSS feed!
@@ -327,16 +332,18 @@ sub scan_feed($$) {
     $date = str2time ($date || '') || time();
     my $age = (time() - $date) / (60 * 60 * 24);
     my $old_p = ($age > $max_days);
-    my $kill_p = ($title && $kill_re && $title =~ m/$kill_re/sio);
+    my $kill_p = ($kill_re &&
+                  (($title  && $title  =~ m/$kill_re/sio) ||
+                   ($author && $author =~ m/$kill_re/sio)));
 
     if ($verbose > 1) {
       if ($kill_p) {
-        print STDERR "$progname:   killfile \"$title\"\n";
+        print STDERR "$progname:   killfile \"$author\" \"$title\"\n";
       } elsif ($old_p) {
-        print STDERR "$progname:   skipping \"$title\"" .
+        print STDERR "$progname:   skipping \"$author\" \"$title\"" .
                      " (" . int($age) . " days old)\n";
       } else {
-        print STDERR "$progname:   checking \"$title\"\n";
+        print STDERR "$progname:   checking \"$author\" \"$title\"\n";
       }
     }
 
@@ -378,7 +385,7 @@ sub scan_feed($$) {
         next;
       }
 
-      push @all_urls, [ $u, $title ];
+      push @all_urls, [ $u, $author, $title ];
       print STDERR "$progname:     found $u\n" if ($verbose > 1);
     }
   }
@@ -546,6 +553,7 @@ sub pull_feeds($$) {
     while (<$in>) {
       chomp;
       next if (m/^\s*#/s);
+      next if (m/^\s*$/s);
       $kill_re .= '|' if $kill_re;
       $kill_re .= $_;
     }
@@ -561,7 +569,7 @@ sub pull_feeds($$) {
     my ($ftitle, $ftotal, @urls) = scan_feed ($feed, $kill_re);
     my @new_urls = ();
     foreach my $P (@urls) {
-      my ($url, $utitle) = @$P;
+      my ($url, $uauthor, $utitle) = @$P;
       next if ($debug_p < 2 && $hist{$url});
       $hist{$url} = 1;
       push @new_urls, $P;
@@ -593,11 +601,13 @@ sub pull_feeds($$) {
     $ftitle2 = undef if ($ftitle2 =~ m/^http/si);
 
     foreach my $P (reverse (@new_urls)) {
-      my ($url, $utitle) = @$P;
+      my ($url, $uauthor, $utitle) = @$P;
       my $ftitle3 = $ftitle2;
 
+      $ftitle3 = "$uauthor: $ftitle3" if $uauthor;
+
       #### Kludge for titles of the dnalounge "calendar videos" feed.
-      $ftitle3 = "$ftitle2 $1"
+      $ftitle3 = "$ftitle2: $uauthor: $1"
         if ($utitle && $utitle =~ m/^DNA Lounge: ([a-z]{3} \d\d?) /si);
 
       next unless download_url ($url, $utitle, $ftitle3, $bwlimit);
