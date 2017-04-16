@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright © 2013-2016 Jamie Zawinski <jwz@jwz.org>
+# Copyright © 2013-2017 Jamie Zawinski <jwz@jwz.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -38,7 +38,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.40 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.43 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -308,6 +308,15 @@ sub scan_feed($$) {
     }
 
 
+    # Convert HTML to plain text for killfile.
+    my $text = $html;
+    $text =~ s@<[^<>]*>@@gs;
+    $text = html_unquote ($text);
+    my $text2 = $text;
+    $text2 =~ s/\\/\\\\/gs;
+    $text2 =~ s/\n/\\n/gs;
+
+
     # promonews.tv doesn't include the videos in their RSS feed!
     # Pull it from the web site instead.
     #
@@ -333,12 +342,13 @@ sub scan_feed($$) {
     my $age = (time() - $date) / (60 * 60 * 24);
     my $old_p = ($age > $max_days);
     my $kill_p = ($kill_re &&
-                  (($title  && $title  =~ m/$kill_re/sio) ||
-                   ($author && $author =~ m/$kill_re/sio)));
+                  (($title  && $title  =~ m/$kill_re/so) ||
+                   ($author && $author =~ m/$kill_re/so) ||
+                   ($text   && $text   =~ m/$kill_re/mo)));
 
     if ($verbose > 1) {
       if ($kill_p) {
-        print STDERR "$progname:   killfile \"$author\" \"$title\"\n";
+        print STDERR "$progname:   killfile \"$author\" \"$title\" \"$text2\"\n";
       } elsif ($old_p) {
         print STDERR "$progname:   skipping \"$author\" \"$title\"" .
                      " (" . int($age) . " days old)\n";
