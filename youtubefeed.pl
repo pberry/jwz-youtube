@@ -38,7 +38,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.43 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.46 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -254,9 +254,8 @@ sub scan_feed($$) {
 
   error ("looks like HTML: $url") if ($body =~ m/^<(HEAD|!DOCTYPE)\b/si);
 
-  $body =~ s/[\r\n]/ /gsi;
-  $body =~ s/(<(entry|item)\b)/\n$1/gsi;
-  my @items = split("\n", $body);
+  $body =~ s/(<(entry|item)\b)/\001$1/gsi;
+  my @items = split("\001", $body);
 
   my $head = shift @items || '';
 
@@ -528,16 +527,21 @@ sub pull_feeds($$) {
   # Use the history file as a mutex.
   #
   my $hist_fd;
-  open ($hist_fd, '+>>', $hist)	|| error ("writing $hist: $!");
+  open ($hist_fd, ($debug_p ? '<' : '+>>'), $hist) ||
+    error ("writing $hist: $!");
   if (! flock ($hist_fd, LOCK_EX | LOCK_NB)) {
     my $age = time() - (stat($hist_fd))[9];
     # If we haven't been locked that long, exit silently.
     exit (1) if ($verbose == 0 && $age < 60 * 60 * 2);
     $age = sprintf("%d:%02d:%02d", $age/60/60, ($age/60)%60, $age%60);
-    error ("already locked for $age: $hist");
+    if ($debug_p) {
+      print STDERR "already locked for $age: $hist\n";
+    } else {
+      error ("already locked for $age: $hist");
+    }
   }
 
-  seek ($hist_fd, 0, 0)         || error ("rewinding $hist: $!");
+  seek ($hist_fd, 0, 0) || error ("rewinding $hist: $!");
   print STDERR "$progname: locked $hist\n"
     if ($verbose > 1);
 
@@ -629,17 +633,19 @@ sub pull_feeds($$) {
       # Write the history file after each URL download, in case we die.
       # We are still holding a lock on this file.
       #
-      truncate ($hist_fd, 0) || error ("truncating $hist: $!");
-      seek ($hist_fd, 0, 0)  || error ("rewinding $hist: $!");
-      my $h = join("\n", @hist);
-      $h .= "\n" if $h;
-      print $hist_fd $h;
+      if (! $debug_p) {
+        truncate ($hist_fd, 0) || error ("truncating $hist: $!");
+        seek ($hist_fd, 0, 0)  || error ("rewinding $hist: $!");
+        my $h = join("\n", @hist);
+        $h .= "\n" if $h;
+        print $hist_fd $h;
 
-      # Need to manually position the write handle to the end!
-      seek ($hist_fd, 2, 0)  || error ("seeking $hist: $!");
+        # Need to manually position the write handle to the end!
+        seek ($hist_fd, 2, 0)  || error ("seeking $hist: $!");
 
-      print STDERR "$progname: wrote " . scalar(@hist) . " URLs to $hist\n"
-        if ($verbose > 1);
+        print STDERR "$progname: wrote " . scalar(@hist) . " URLs to $hist\n"
+          if ($verbose > 1);
+      }
     }
   }
 
