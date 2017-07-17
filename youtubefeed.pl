@@ -38,7 +38,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.46 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.48 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -467,6 +467,10 @@ sub scan_youtube_user_feed($$) {
 sub download_url($$$$) {
   my ($url, $title, $ftitle, $bwlimit) = @_;
 
+  foreach ($title, $ftitle) {
+    s/^youtube[^a-z\d]*//si;  # Thanks I am aware.
+  }
+
   utf8::encode ($title);  # Unpack wide chars to multi-byte UTF-8
   $ftitle .= ':' if $ftitle;
 
@@ -617,6 +621,8 @@ sub pull_feeds($$) {
     foreach my $P (reverse (@new_urls)) {
       my ($url, $uauthor, $utitle) = @$P;
       my $ftitle3 = $ftitle2;
+
+      $uauthor = '' if ($ftitle3 =~ m/^(promonews|antville|reddit)/si);
 
       $ftitle3 = "$uauthor: $ftitle3" if $uauthor;
 

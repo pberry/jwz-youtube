@@ -67,7 +67,7 @@ use HTML::Entities;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.909 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.943 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -1041,7 +1041,7 @@ sub video_url_size($$;$$) {
   # And now I see a 624 x 352, 180 MB, 50 minute video that gets
   # "error reading header: -541478725" unless we read 910 KB.
   #
-  my $bytes = 910 * 1024;
+  my $bytes = 1024 * 1024;
 
   my ($http, $head, $body) = get_url ($url, undef, $file, $bwlimit, $bytes);
   check_http_status ($id, $url, $http, 2);  # internal error if still 403
@@ -1651,6 +1651,36 @@ my %ciphers = (
   'player-en_US-vflaxXRn1/base' => '17263 w54 s3 w1 w36 s3',      # 12 Apr 2017
   'player-en_US-vfl5-0t5t/base' => '17269 s1 w44 r s1',           # 14 Apr 2017
   'player-en_US-vflchU0AK/base' => '17270 w58 s1 r s2 w8 w21',    # 20 Apr 2017
+  'player-en_US-vflNZnmd3/base' => '17277 w66 r w54',             # 24 Apr 2017
+  'player-en_US-vflR14qD2/base' => '17277 w66 r w54',             # 25 Apr 2017
+  'player-vflppxuSE/en_US/base' => '17277 w66 r w54',             # 27 Apr 2017
+  'player-vflp8UEng/en_US/base' => '17291 r s3 r w45',            # 05 May 2017
+  'player-vfl3DiVMI/en_US/base' => '17293 w59 s3 w24 r w55 r s2 w38 w19',# 08 May 2017
+  'player-vfljmjb-X/en_US/base' => '17291 r s3 r w45',            # 11 May 2017
+  'player-vflxXnk_G/en_US/base' => '17295 r w27 r',               # 11 May 2017
+  'player-vfltmLGsd/en_US/base' => '17297 s2 w55 r s3 r',         # 16 May 2017
+  'player-vfl8jhACg/en_US/base' => '17303 w67 s3 r s2',           # 17 May 2017
+  'player-vfl4Xq3l4/en_US/base' => '17302 s3 r w43',              # 19 May 2017
+  'player-vfld8zR1S/en_US/base' => '17305 w16 s1 r s3 w33 s2 r s2',# 22 May 2017
+  'player-vfluaMKo6/en_US/base' => '17305 w16 s1 r s3 w33 s2 r s2',# 23 May 2017
+  'player-vflyC4_W-/en_US/base' => '17316 s1 r w24 s3 r w54 s1',  # 30 May 2017
+  'player-vflCqycGh/en_US/base' => '17316 s1 r w24 s3 r w54 s1',  # 01 Jun 2017
+  'player-vflZ_L_3c/en_US/base' => '17316 s1 r w24 s3 r w54 s1',  # 02 Jun 2017
+  'player-vflQZSd3x/en_US/base' => '17325 s3 r s1',               # 12 Jun 2017
+  'player-vflLxaaub/en_US/base' => '17329 s2 r w19 w60 s1 r w15 r s2',# 14 Jun 2017
+  'player-vfle90bgw/en_US/base' => '17329 s2 r w19 w60 s1 r w15 r s2',# 16 Jun 2017
+  'player-vfl2DpwLG/en_US/base' => '17333 w57 r w66',             # 19 Jun 2017
+  'player-vfl1Renoe/en_US/base' => '17336 r w38 r w67 w24 r s2',  # 20 Jun 2017
+  'player-vflmgXZN3/en_US/base' => '17338 s2 w33 w16 w44 s1 w12 r w19',# 23 Jun 2017
+  'player-vflPHG8dr/en_US/base' => '17342 r w12 r s2 w21 s3 w25 s1 r',# 25 Jun 2017
+  'player-vflAmElk-/en_US/base' => '17343 w4 r s1 w11 s1 w67 r',  # 27 Jun 2017
+  'player-vflV4eRc2/en_US/base' => '17344 w46 r w13 r w5 s3 w44 w51',# 28 Jun 2017
+  'player-vflotiWiu/en_US/base' => '17343 w4 r s1 w11 s1 w67 r',  # 29 Jun 2017
+  'player-vfl3RjfTG/en_US/base' => '17343 w4 r s1 w11 s1 w67 r',  # 05 Jul 2017
+  'player-vfl2U8fxZ/en_US/base' => '17353 r w70 w7 r s2 r s3',    # 06 Jul 2017
+  'player-vflDXt52J/en_US/base' => '17354 w39 s3 w70 r s3',       # 10 Jul 2017
+  'player-vflZQAwO8/en_US/base' => '17354 w39 s3 w70 r s3',       # 11 Jul 2017
+  'player-vflL_WLGI/en_US/base' => '17358 r w42 w32 r',           # 13 Jul 2017
 );
 
 
@@ -1804,6 +1834,13 @@ sub guess_cipher(;$$) {
 
   my @cipher = ();
   foreach my $c (split (/\s*;\s*/, $fn2)) {
+
+    # Typically the obfuscator gives member functions names like 'XX.YY',
+    # but in the case where 'YY' happens to be a reserved word, like 'do',
+    # it will instead emit 'XX["YY"]'.
+    #
+    $c =~ s@ ^ ( $v ) \[\" ( $v ) \"\] @$1.$2@sx;
+
     if      ($c =~ m@^ ( $v ) = \1 . $v \(""\) $@sx) {         # A=A.split("");
     } elsif ($c =~ m@^ ( $v ) = \1 .  $v \(\)  $@sx) {         # A=A.reverse();
       push @cipher, "r";
@@ -1816,10 +1853,14 @@ sub guess_cipher(;$$) {
       my $n = $3;
       $f =~ s/^.*\.//gs;  # C.D => D
       # Find function D, of the form: C={ ... D:function(a,b) { ... }, ... }
-      my ($fn3) = ($body =~ m@ \b \Q$f\E: \s*
+      my ($fn3) = ($body =~ m@ \b \"? \Q$f\E \"? : \s*
                                function \s* \( .*? \) \s*
                                 ( { [^{}]+ } )
                              @sx);
+      if (!$fn3) {
+        $fn =~ s/;/;\n\t    /gs;
+        error ("unparsable: function \"$f\" not found\n\tin: $fn");
+      }
       # Look at body of D to decide what it is.
       if ($fn3 =~ m@ var \s ( $v ) = ( $v ) \[ 0 \]; @sx) {  # swap
         push @cipher, "w$n";
@@ -2293,8 +2334,8 @@ sub load_youtube_formats_html($$$) {
 #    N: [ ...video info... ],
 #    M: [ ...video info... ], ... ]
 #
-sub load_youtube_formats($$) {
-  my ($id, $url) = @_;
+sub load_youtube_formats($$$) {
+  my ($id, $url, $size_p) = @_;
 
   my $cipher = undef;
   my $sts = undef;
@@ -2326,7 +2367,10 @@ sub load_youtube_formats($$) {
   my $info_url = ("https://www.youtube.com/get_video_info?video_id=$id" .
                   # Avoid the "playback restricted" error. This is a referer.
                   '&eurl=' . url_quote ($url) .
-                  ($sts ? '&sts=' . $sts : '')
+                  ($sts ? '&sts=' . $sts : '') .
+                  # Jul 2017: need this to avoid "blocked it from display
+                  # on this website or application".
+                  '&el=info'
                  );
   my ($title, $kind, $kind2, $urlmap, $urlmap2, $body, $rental, $realtime,
       $rtmpe_p, $embed_p, $dashmpd);
@@ -2357,7 +2401,8 @@ sub load_youtube_formats($$) {
     }
 
     ($title)    = ($body =~ m@&title=([^&]+)@si) unless $title;
-    ($rental)   = ($body =~ m@&ypc_video_rental_bar_text=([^&]+)@si);
+    ($rental)   = ($body =~ m@&ypc_video_rental_bar_text=([^&]+)@si ||
+                   $body =~ m@&ypc_buy_url=([^&]+)@si);
     ($realtime) = ($body =~ m@&(?:livestream|live_playback|hlsvp)=([^&]+)@si);
     ($embed_p)  = ($body =~ m@&allow_embed=([^&]+)@si);
     $rtmpe_p    = ($urlmap && $urlmap =~ m/rtmpe(=|%3D|%253D)yes/s);
@@ -2392,6 +2437,12 @@ sub load_youtube_formats($$) {
     sleep (1);
   }
 
+  if ($err) {
+    $err =~ s/<[^<>]+>//gs;
+    $err =~ s/\n/ /gs;
+    $err =~ s/\s*Watch on YouTube\.?//gs; # FU
+  }
+
   $err = "video is not embeddable"
     if ($err && (defined($embed_p) && !$embed_p));
 
@@ -2403,11 +2454,13 @@ sub load_youtube_formats($$) {
   $err = "can't download rental videos"
     if (!$err && !$urlmap && $rental);
 
-  $err = "can't download livestream videos"
-    if (!$err && !$urlmap && $realtime);
-
   $err = "can't download RTMPE DRM videos"
     if (!$err && $rtmpe_p);
+
+  if (!$err && !$urlmap && $realtime) {
+    $err = "can't download livestream videos";
+    return undef if ($size_p);
+  }
 
   if ($err && $verbose <= 0) {
     my $blocked_re = join ('|',
@@ -2434,7 +2487,7 @@ sub load_youtube_formats($$) {
       # for "youtubefeed".
       exit (0);
     }
-    error ("$progname: $id: $err");
+    error ("$id: $err");
   }
 
   ($title) = ($body =~ m@&title=([^&]+)@si) unless $title;
@@ -2546,6 +2599,8 @@ sub load_vimeo_formats($$) {
     }
   }
 
+  my $obody = $body;  # Might be a better error message in here.
+
   my $referer = $url;
 
   # Test cases:
@@ -2602,6 +2657,21 @@ sub load_vimeo_formats($$) {
       # With --quiet, just silently ignore private videos and 404s,
       # for "youtubefeed".
       exit (0);
+    }
+
+    if ($obody) {
+      # The HTML page might provide an explanation for the error.
+      my ($err2) = ($obody =~
+                    m@ exception_data \s* = \s* { [^{}]*
+                       "notification" \s* : \s* " (.*?) ",@six);
+      if ($err2) {
+        $err2 =~ s/\\n/\n/gs;    # JSON
+        $err2 =~ s/\\//gs;
+        $err2 =~ s/<[^<>]*>//gs; # Lose tags
+        $err2 =~ s/^\s+//gs;
+        $err2 =~ s/\n.*$//gs;    # Keep first para only.
+        $err .= " $err2" if $err2;
+      }
     }
 
     error ("$id: $err") if ($http || $err =~ m/Private/s);
@@ -2733,7 +2803,7 @@ sub load_tumblr_formats($$) {
     my ($e) = ($chunk =~ m@ "embed_code" : \s* " (.*?) " @six);
 
     $e =~ s/\\n/\n/gs;
-    $e =~ s/ \\[ux] { ([a-z0-9]+)   } / unihex($1) /gsexi;  # \u{XXXXXX}
+    $e =~ s/ \\[ux] \{ ([a-z0-9]+)   \} / unihex($1) /gsexi;  # \u{XXXXXX}
     $e =~ s/ \\[ux]   ([a-z0-9]{4})   / unihex($1) /gsexi;  # \uXXXX
     $e =~ s/\\//gs;
 
@@ -3547,7 +3617,7 @@ sub munge_title($) {
   utf8::decode ($title);  # Pack multi-byte UTF-8 back into wide chars.
 
   # Decode \u and \x syntax.
-  $title =~ s/ \\[ux] { ([a-z0-9]+)   } / unihex($1) /gsexi;  # \u{XXXXXX}
+  $title =~ s/ \\[ux] \{ ([a-z0-9]+)   \} / unihex($1) /gsexi;  # \u{XXXXXX}
   $title =~ s/ \\[ux]   ([a-z0-9]{4})   / unihex($1) /gsexi;  # \uXXXX
 
   $title =~ s/[\x{2012}-\x{2013}]+/-/gs;	# various dashes
@@ -4304,6 +4374,20 @@ sub download_video_url($$$$$$$$$$) {
                                       $force_fmt);
   }
 
+  # Fuck you, Twitter. Handle links to Youtube inside twits.
+  # If there is both a Youtube link and Twitter-hosted video,
+  # we ignore the latter.
+  #
+  if ($site eq 'twitter') {
+    my ($http, $head, $body) = get_url ($url);
+    check_http_status ($id, $url, $http, 1);
+    if ($body =~ m@\b ( https?://( youtu\.be | [^a-z/]+\.youtube\.com )
+                   / [^\s\"\'<>]+ ) @six) {
+      ($url, $id, $site) = canonical_url ($1);
+    }
+  }
+
+
   # Handle --list for playlists.
   #
   if ($list_p) {
@@ -4362,7 +4446,7 @@ sub download_video_url($$$$$$$$$$) {
   # video in separate URLs. Get the list of all possible downloadable video
   # formats.
   #
-  my $fmts = ($site eq 'youtube'   ? load_youtube_formats ($id, $url) :
+  my $fmts = ($site eq 'youtube'   ? load_youtube_formats ($id, $url, $size_p):
               $site eq 'vimeo'     ? load_vimeo_formats ($id, $url) :
               $site eq 'tumblr'    ? load_tumblr_formats ($id, $url) :
               $site eq 'vine'      ? load_vine_formats ($id, $url) :
@@ -4372,7 +4456,7 @@ sub download_video_url($$$$$$$$$$) {
 
   # Set the title unless it was specified on the command line with --title.
   #
-  if (! defined($title)) {
+  if (!defined($title) && defined($fmts)) {
     $title = munge_title ($fmts->{title});
 
     # Add the year to the title unless there's a year there already.
@@ -4410,7 +4494,8 @@ sub download_video_url($$$$$$$$$$) {
   # If we're doing --fmt all, this is all of them.
   # Otherwise, it's either one URL or two (audio + video mux).
   #
-  my @targets = pick_download_format ($id, $site, $url, $force_fmt, $fmts);
+  my @targets = pick_download_format ($id, $site, $url, $force_fmt, $fmts)
+    if (defined ($fmts));
   my @pair = (@targets == 2 && $force_fmt ne 'all' ? @targets : ());
 
   if ($cgi_p && @pair) {
@@ -4424,7 +4509,7 @@ sub download_video_url($$$$$$$$$$) {
 
   if ($size_p && @pair) {
     # With --size, we only need to examine the first pair of the mux.
-    @targets = ($pair[0]);
+    @targets = ($pair[0]) if ($pair[0]);
     @pair = ();
   }
 
@@ -4553,8 +4638,9 @@ sub download_video_url($$$$$$$$$$) {
                           $fmts->{$pair[0]},
                           $fmts->{$pair[1]},
                           $outfile);
+  } elsif ($size_p && !@targets) {
+    print STDERR "$id\tsize unknown (live stream?)\n";
   }
-
 }
 
 
