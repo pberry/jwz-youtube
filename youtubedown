@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright © 2007-2016 Jamie Zawinski <jwz@jwz.org>
+# Copyright © 2007-2017 Jamie Zawinski <jwz@jwz.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -67,7 +67,7 @@ use HTML::Entities;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.943 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.968 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -1681,6 +1681,28 @@ my %ciphers = (
   'player-vflDXt52J/en_US/base' => '17354 w39 s3 w70 r s3',       # 10 Jul 2017
   'player-vflZQAwO8/en_US/base' => '17354 w39 s3 w70 r s3',       # 11 Jul 2017
   'player-vflL_WLGI/en_US/base' => '17358 r w42 w32 r',           # 13 Jul 2017
+  'player-vflMaap-E/en_US/base' => '17364 r w13 r w28 r s3 r s3', # 19 Jul 2017
+  'player-vflGD0HaZ/en_US/base' => '17364 r w13 r w28 r s3 r s3', # 20 Jul 2017
+  'player-vflC3ZxIh/en_US/base' => '17368 w11 w55 w26',           # 24 Jul 2017
+  'player-vflp0IacK/en_US/base' => '17372 w68 s3 w24 s3 w55 r s2',# 27 Jul 2017
+  'player-vflrwQIQw/en_US/base' => '17374 r s2 r w19 s1',         # 27 Jul 2017
+  'player-vflRrT_TQ/en_US/base' => '17374 r s2 r w19 s1',         # 02 Aug 2017
+  'player-vflN55NZo/en_US/base' => '17379 s2 r s2 w37 s3 w4 w13 w17 s3',# 02 Aug 2017
+  'player-vfl8KhWdC/en_US/base' => '17380 w7 r w33 s2 w51 s2 w46 r s1',# 03 Aug 2017
+  'player-vflIVpVc9/en_US/base' => '17385 r s2 w1 s3 w11 w9 s2',  # 07 Aug 2017
+  'player-vflmw6aFG/en_US/base' => '17382 s3 r w36 s1 w48',       # 09 Aug 2017
+  'player-vflSyILh9/en_US/base' => '17387 s2 r w4 s1 w6',         # 14 Aug 2017
+  'player-vflBXnagy/en_US/base' => '17387 s2 r w4 s1 w6',         # 15 Aug 2017
+  'player-vflW7ch5Z/en_US/base' => '17393 r s1 r s2 r s2',        # 16 Aug 2017
+  'player-vflAAoWvh/en_US/base' => '17393 r s1 r s2 r s2',        # 17 Aug 2017
+  'player-vflTof4g1/en_US/base' => '17399 w25 w9 r',              # 23 Aug 2017
+  'player-vflK5H48T/en_US/base' => '17399 w25 w9 r',              # 23 Aug 2017
+  'player-vflyJ3OmM/en_US/base' => '17402 w65 s3 r s1 r s1 w58',  # 25 Aug 2017
+  'player-vfl2iVoNh/en_US/base' => '17403 s3 w51 w36 s3',         # 25 Aug 2017
+  'player-vflyFnz8E/en_US/base' => '17403 s3 w51 w36 s3',         # 28 Aug 2017
+  'player-vflWQ9tuM/en_US/base' => '17403 s3 w51 w36 s3',         # 30 Aug 2017
+  'player-vflaEZiBp/en_US/base' => '17403 s3 w51 w36 s3',         # 05 Sep 2017
+  'player-vflbWGdxe/en_US/base' => '17416 w38 r s1 w52 r w46 w49 r',# 07 Sep 2017
 );
 
 
@@ -1767,7 +1789,7 @@ sub guess_cipher(;$$) {
     check_http_status ($id, $url, $http, 2);
 
     $body =~ s/\\//gs;
-    ($cipher_id) = ($body =~ m@/jsbin\\?/((?:html5)?player-.+?)\.js@s);
+    ($cipher_id) = ($body =~ m@/jsbin\\?/((?:html5)?player[-_].+?)\.js@s);
     errorI ("$id: unparsable cipher url: $url\n\nBody:\n\n$body")
       unless $cipher_id;
   }
@@ -2467,6 +2489,7 @@ sub load_youtube_formats($$$) {
                          ('(available|blocked it) in your country',
                           'copyright (claim|grounds)',
                           'removed by the user',
+                          'has been removed',
                           'invalid parameters',
                           'is not available',
                           'is not embeddable',
@@ -2482,7 +2505,7 @@ sub load_youtube_formats($$$) {
   }
 
   if ($err) {
-    if ($verbose <= 0 && $err =~ m/\bprivate\b/si) {
+    if ($verbose <= 0 && $err =~ m/\bprivate\b|\bplease sign in\b/si) {
       # With --quiet, just silently ignore private videos,
       # for "youtubefeed".
       exit (0);

@@ -38,7 +38,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.48 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.50 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -311,6 +311,8 @@ sub scan_feed($$) {
     my $text = $html;
     $text =~ s@<[^<>]*>@@gs;
     $text = html_unquote ($text);
+    $text =~ s/[^\000-\176]/ /gs;    # unicrud
+
     my $text2 = $text;
     $text2 =~ s/\\/\\\\/gs;
     $text2 =~ s/\n/\\n/gs;
@@ -345,14 +347,18 @@ sub scan_feed($$) {
                    ($author && $author =~ m/$kill_re/so) ||
                    ($text   && $text   =~ m/$kill_re/mo)));
 
+    if (!$kill_p && $url =~ m/youtube-dnalounge/) {
+      print STDERR "#### nokill $guid \"$author\" \"$title\" \"$text2\"\n\n";
+    }
+
     if ($verbose > 1) {
       if ($kill_p) {
-        print STDERR "$progname:   killfile \"$author\" \"$title\" \"$text2\"\n";
+        print STDERR "$progname:   killfile $guid \"$author\" \"$title\" \"$text2\"\n";
       } elsif ($old_p) {
-        print STDERR "$progname:   skipping \"$author\" \"$title\"" .
+        print STDERR "$progname:   skipping $guid \"$author\" \"$title\"" .
                      " (" . int($age) . " days old)\n";
       } else {
-        print STDERR "$progname:   checking \"$author\" \"$title\"\n";
+        print STDERR "$progname:   checking $guid \"$author\" \"$title\" \"$text2\"\n";
       }
     }
 
