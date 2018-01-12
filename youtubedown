@@ -67,7 +67,7 @@ use HTML::Entities;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.968 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1033 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -1703,6 +1703,61 @@ my %ciphers = (
   'player-vflWQ9tuM/en_US/base' => '17403 s3 w51 w36 s3',         # 30 Aug 2017
   'player-vflaEZiBp/en_US/base' => '17403 s3 w51 w36 s3',         # 05 Sep 2017
   'player-vflbWGdxe/en_US/base' => '17416 w38 r s1 w52 r w46 w49 r',# 07 Sep 2017
+  'player-vflm9jiGH/en_US/base' => '17416 w38 r s1 w52 r w46 w49 r',# 11 Sep 2017
+  'player-vflUDI8Xm/en_US/base' => '17416 w38 r s1 w52 r w46 w49 r',# 12 Sep 2017
+  'player-vfl8DkB0M/en_US/base' => '17422 s3 r w24 w61 r s3 r',   # 13 Sep 2017
+  'player-vflUnLBiU/en_US/base' => '17421 s3 r s1 w45 w25 s3',    # 14 Sep 2017
+  'player-vfliXTNRk/en_US/base' => '17423 r s3 r s3 w51 w8 s3 w21',# 18 Sep 2017
+  'player-vflxp5z1z/en_US/base' => '17423 r s3 r s3 w51 w8 s3 w21',# 19 Sep 2017
+  'player-vfl3pBiM5/en_US/base' => '17423 r s3 r s3 w51 w8 s3 w21',# 20 Sep 2017
+  'player-vflR94_oU/en_US/base' => '17423 r s3 r s3 w51 w8 s3 w21',# 22 Sep 2017
+  'player-vfldWu3iC/en_US/base' => '17434 s3 r s1 r w61 r s2 w28',# 26 Sep 2017
+  'player-vfls3Lf3-/en_US/base' => '17434 s3 r s1 r w61 r s2 w28',# 27 Sep 2017
+  'player-vflcAIVzv/en_US/base' => '17437 r w54 r',               # 28 Sep 2017
+  'player-vflGRNpAk/en_US/base' => '17436 s1 w50 r s3',           # 02 Oct 2017
+  'player-vfl1RKjMF/en_US/base' => '17442 s2 r s2',               # 04 Oct 2017
+  'player-vflOdyxa4/en_US/base' => '17444 s2 r w24 s2 w48 s3 r',  # 05 Oct 2017
+  'player-vflgfcuiz/en_US/base' => '17444 s2 r w24 s2 w48 s3 r',  # 09 Oct 2017
+  'player-vflgH8YLq/en_US/base' => '17448 r w49 s3 w34 s3 w6 s3', # 10 Oct 2017
+  'player-vflwcUIMe/en_US/base' => '17449 w31 r w13 w14 r s1 r w45 r',# 11 Oct 2017
+  'player-vflD3dhYB/en_US/base' => '17452 w41 r w37 w19',         # 17 Oct 2017
+  'player-vflHvONov/en_US/base' => '17455 s2 r s2 w20 r s3',      # 17 Oct 2017
+  'player-vflcNAJUd/en_US/base' => '17456 w16 s3 w6 r w40 s3 r w49',# 18 Oct 2017
+  'player-vflN-B5oM/en_US/base' => '17463 r w69 w9 s1',           # 24 Oct 2017
+  'player-vflC8Yy7I/en_US/base' => '17462 w70 s3 w59 r w46',      # 25 Oct 2017
+  'player-vflhIZIgy/en_US/base' => '17462 w70 s3 w59 r w46',      # 26 Oct 2017
+  'player-vflSjPnAo/en_US/base' => '17465 r w28 w62 r s1 r s1',   # 30 Oct 2017
+  'player-vfl1ElKmp/en_US/base' => '17469 s2 r w62 s2 w5',        # 31 Oct 2017
+  'player-vflhqxyp7/en_US/base' => '17469 s2 r w62 s2 w5',        # 01 Nov 2017
+  'player-vflg6eF8s/en_US/base' => '17471 w13 w48 r s3 w6',       # 02 Nov 2017
+  'player-vflv6AMZr/en_US/base' => '17473 w1 r s2 w16',           # 06 Nov 2017
+  'player-vflvYne1z/en_US/base' => '17473 w1 r s2 w16',           # 07 Nov 2017
+  'player-vfl8XKJyP/en_US/base' => '17478 s1 r w69 s2 w45 s3 r w64 s2',# 08 Nov 2017
+  'player-vfl97imvj/en_US/base' => '17478 s1 r w69 s2 w45 s3 r w64 s2',# 09 Nov 2017
+  'player-vflXHVFyU/en_US/base' => '17483 r w55 s3 w5 r w36 r w66',# 13 Nov 2017
+  'player-vflg_prv_/en_US/base' => '17486 w58 s3 r s2 w2 s3',     # 16 Nov 2017
+  'player-vflPDkkkL/en_US/base' => '17486 w58 s3 r s2 w2 s3',     # 16 Nov 2017
+  'player-vflM013co/en_US/base' => '17486 w58 s3 r s2 w2 s3',     # 16 Nov 2017
+  'player-vflYXLM5n/en_US/base' => '17488 r s2 w13 s3 w62 r w14', # 20 Nov 2017
+  'player-vflsCMP_E/en_US/base' => '17490 w31 s1 r s3',           # 21 Nov 2017
+  'player-vflJtN5rw/en_US/base' => '17494 w45 w69 w2 r s1 r s1 r',# 24 Nov 2017
+  'player-vflnNEucX/en_US/base' => '17492 w61 r s2 r',            # 27 Nov 2017
+  'player-vfl8BSHQD/en_US/base' => '17492 w61 r s2 r',            # 29 Nov 2017
+  'player-vfl32FIDY/en_US/base' => '17501 w48 r w24 r',           # 04 Dec 2017
+  'player-vfl_6lezG/en_US/base' => '17501 w48 r w24 r',           # 05 Dec 2017
+  'player-vflvODUt0/en_US/base' => '17501 w48 r w24 r',           # 06 Dec 2017
+  'player-vfl4OEYh9/en_US/base' => '17501 w48 r w24 r',           # 07 Dec 2017
+  'player-vflebAXY2/en_US/base' => '17508 s2 w60 w51 s3 w52 r w22',# 11 Dec 2017
+  'player-vflu-7yX5/en_US/base' => '17511 r s2 r s2 w69',         # 12 Dec 2017
+  'player-vflOQ79Pl/en_US/base' => '17512 w28 w47 r s1 r w6',     # 13 Dec 2017
+  'player-vflyoGrhd/en_US/base' => '17512 w28 w47 r s1 r w6',     # 14 Dec 2017
+  'player-vflalc4VN/en_US/base' => '17515 w52 w9 s3 r w19 r w44 r',# 18 Dec 2017
+  'player-vflQ3Cu6g/en_US/base' => '17533 w56 s3 w35 r s2 w57 s2',# 03 Jan 2018
+  'player-vflIfz8pB/en_US/base' => '17533 w56 s3 w35 r s2 w57 s2',# 04 Jan 2018
+  'player-vfluepRD8/en_US/base' => '17536 w30 w30 w10 s3',        # 08 Jan 2018
+  'player-vflmAXHDE/en_US/base' => '17539 w20 r w35 r s1 w60 r s2',# 09 Jan 2018
+  'player-vflAhnAPk/en_US/base' => '17539 w20 r w35 r s1 w60 r s2',# 10 Jan 2018
+  'player-vflLCGcm0/en_US/base' => '17541 s2 r s3 w27 s2',        # 11 Jan 2018
 );
 
 
@@ -2386,21 +2441,26 @@ sub load_youtube_formats($$$) {
     errorI ("$cipher: no sts") unless $sts;
   }
 
-  my $info_url = ("https://www.youtube.com/get_video_info?video_id=$id" .
-                  # Avoid the "playback restricted" error. This is a referer.
-                  '&eurl=' . url_quote ($url) .
-                  ($sts ? '&sts=' . $sts : '') .
-                  # Jul 2017: need this to avoid "blocked it from display
-                  # on this website or application".
-                  '&el=info'
-                 );
+  my $info_url_1 = ("https://www.youtube.com/get_video_info?video_id=$id" .
+                    # Avoid the "playback restricted" error. This is a referer.
+                    '&eurl=' . url_quote ($url) .
+                    ($sts ? '&sts=' . $sts : ''));
+
+  # Sometimes this arg is needed to avoid "blocked it from display
+  # on this website or application". But sometimes, including it *causes*
+  # "sign in to confirm your age". So try both with and without.
+  #
+  my $info_url_2 = $info_url_1 . '&el=info';
+
   my ($title, $kind, $kind2, $urlmap, $urlmap2, $body, $rental, $realtime,
       $rtmpe_p, $embed_p, $dashmpd);
 
-  my $retries = 5;
+  my $retries = 8;
   my $err = undef;
 
   while (--$retries) {	# Sometimes the $info_url fails; try a few times.
+
+    my $info_url = ($retries & 1 ? $info_url_1 : $info_url_2);
 
     my ($http, $head);
     ($http, $head, $body) = get_url ($info_url);
@@ -2514,7 +2574,7 @@ sub load_youtube_formats($$$) {
   }
 
   ($title) = ($body =~ m@&title=([^&]+)@si) unless $title;
-  errorI ("$id: no title in $info_url") if (!$title && $urlmap);
+  errorI ("$id: no title in $info_url_1") if (!$title && $urlmap);
   $title = url_unquote($title) if $title;
 
   my $fmts = undef;
@@ -3000,6 +3060,11 @@ sub load_twitter_formats($$) {
     if ($src =~ m@\.m3u[^/]+$@s) {
       # ($http, $head, $body) = get_url ($src);
       #### ...
+
+      # With --quiet, just silently ignore livestream failures,
+      # for "youtubefeed".
+      exit (0) if ($verbose <= 0);
+
       error ("Twitter is a piece of shit, we can't handle .m3u8u video");
     }
   }
@@ -4116,8 +4181,7 @@ sub canonical_url($;) {
                 (?: view_play_list\?p= |
                     p/ |
                     embed/p/ |
-                    playlist\?list=(?:PL)? |
-                    watch\?list=(?:PL)? |
+                    .*? [?&] list=(?:PL)? |
                     embed/videoseries\?list=(?:PL)?
                 )
                 ([^<>?&,]+) ($|&) @sx) {
@@ -4257,7 +4321,7 @@ sub mux_downloaded_files($$$$$$) {
 
   error ("$id: mismunged filename $muxed_file")
     if ($muxed_file eq $audio_file || $muxed_file eq $video_file);
-  error ("$id: exists: $muxed_file") if (-f $muxed_file);
+  error ("$id: exists: $muxed_file (1)") if (-f $muxed_file);
 
   my @cmd = ('ffmpeg',
              # "-hide_banner", # not present in 0.6.5
@@ -4424,29 +4488,45 @@ sub download_video_url($$$$$$$$$$) {
   }
 
 
+  # Though Tumblr and Twitter can host their own videos, much of the time
+  # there is just an embedded Youtube video instead.
+  #
+  if ($site eq 'tumblr' || $site eq 'twitter') {
+    my ($http, $head, $body) = get_url ($url);
+    check_http_status ($id, $url, $http, 1);
+    if ($body =~ m@ \b ( https?:// (?: [a-z]+\. )?
+                    youtube\.com/
+                    [^\"\'<>]*? (?: embed | \?v= )
+                    [^\"\'<>]+ )@six) {
+      ($url, $id, $site) = canonical_url (html_unquote ($1));
+    }
+  }
+
+
   my $suf = (" [" . $id .
              ($force_fmt && $force_fmt ne 'mux' ? " $force_fmt" : "") .
              "]");
 
   if (! ($size_p || $list_p)) {
 
-    # If we're writing with --suffix, we can check for an existing file before
-    # knowing the title of the video.  Check for a file with "[this-ID]" in it.
-    # (The quoting rules of perl's "glob" function are ridiculous and
-    # confusing, so let's do it the hard way instead.)
+    # If we're writing with --suffix, we can check for an existing
+    # file before knowing the title of the video.  Check for a file
+    # with "[this-ID]" in it.  (The quoting rules of perl's "glob"
+    # function are ridiculous and confusing, so let's do it the hard
+    # way instead.)
     #
     opendir (my $dir, '.') || error ("readdir: $!");
     foreach my $f (readdir ($dir)) {
       if ($f =~ m/\Q$suf\E/s) {
         exit (1) if ($verbose <= 0); # Skip silently if --quiet.
-        error ("$id: exists: $f");
+        error ("$id: exists: $f (2)");
       }
     }
     closedir $dir;
 
     if (defined($outfile)) {
-      error ("$id: exists: $outfile") if (-f $outfile);
-      
+      error ("$id: exists: $outfile (3)") if (-f $outfile);
+
     } elsif (defined($title)) {
       # If we already have a --title, we can check for the existence of the
       # file before hitting the network.  Otherwise, we need to download the
@@ -4459,7 +4539,7 @@ sub download_video_url($$$$$$$$$$) {
                file_exists_with_suffix ("$title$suf"));
       if ($o) {
         exit (1) if ($verbose <= 0); # Skip silently if --quiet.
-        error ("$id: exists: $o");
+        error ("$id: exists: $o (4)");
       }
     }
   }
@@ -4507,7 +4587,7 @@ sub download_video_url($$$$$$$$$$) {
                file_exists_with_suffix ("$title$suf"));
       if ($o) {
         exit (1) if ($verbose <= 0); # Skip silently if --quiet.
-        error ("$id: exists: $o");
+        error ("$id: exists: $o (5)");
       }
     }
   }
@@ -4584,6 +4664,12 @@ sub download_video_url($$$$$$$$$$) {
       my $file = ($prefix ? "$prefix $title" : $title) . $suf;
       $file .= '.' . content_type_ext($ct);
 
+      # If the de-muxed audio or video files are somehow still around
+      # when we exit, just delete them. We never resume those on the
+      # next run, so they're useless.
+      #
+      push @rm_f, $file if (@pair);
+
       my $ftitle = $file;
 
       $file = (@pair
@@ -4599,8 +4685,13 @@ sub download_video_url($$$$$$$$$$) {
       }
 
       if (-f $file) {
-        exit (1) if ($verbose <= 0); # Skip silently if --quiet.
-        error ("$id: exists: $file");
+
+        if (($force_fmt || '') eq 'mux') {
+          # Allow the temporary files used in muxing to be overwritten.
+        } else {
+          exit (1) if ($verbose <= 0); # Skip silently if --quiet.
+          error ("$id: exists: $file (6)");
+        }
       }
 
       print STDERR "$progname: reading \"$ftitle\"\n" if ($verbose > 0);
@@ -4729,6 +4820,7 @@ sub download_youtube_playlist($$$$$$$$$$) {
     my ($t2, $u2) = @$P;
     eval {
       $noerror = 1;
+      utf8::encode ($t2) if defined($t2);
       download_video_url ($u2, $t2, $prefix, undef, $size_p, $list_p,
                           $bwlimit, $progress_p,
                           $cgi_p, $force_fmt);

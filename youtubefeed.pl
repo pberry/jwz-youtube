@@ -38,7 +38,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.50 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.54 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -91,8 +91,7 @@ sub canonical_url($;) {
                 (?: view_play_list\?p= |
                     p/ |
                     embed/p/ |
-                    playlist\?list=(?:PL)? |
-                    watch\?list=(?:PL)? |
+                    .*? [?&] list=(?:PL)? |
                     embed/videoseries\?list=(?:PL)?
                 )
                 ([^<>?&,]+) ($|&) @sx) {
@@ -173,18 +172,39 @@ sub canonical_url($;) {
 
   # Tumblr /video/UUU/NNNNN
   } elsif ($url =~
-           m@^https?://[-_a-z]+\.(tumblr)\.com/video/([^/]+)/(\d{8,})/@si) {
+           m@^https?://[-_a-z\d]+\.(tumblr)\.com/video/([^/]+)/(\d{8,})/@si) {
     my $user;
     ($site, $user, $id) = ($1, $2, $3);
     $site = lc($site);
     $url = "https://$user.$site.com/post/$id";
 
   # Tumblr /post/NNNNN
-  } elsif ($url =~ m@^https?://([-_a-z]+)\.(tumblr)\.com/.*?/(\d{8,})/@si) {
+  } elsif ($url =~ m@^https?://([-_a-z\d]+)\.(tumblr)\.com
+                     /.*?/(\d{8,})(/|$)@six) {
     my $user;
     ($user, $site, $id) = ($1, $2, $3);
     $site = lc($site);
     $url = "https://$user.$site.com/post/$id";
+
+  # Vine /v/NNNNN
+  } elsif ($url =~ m@^https?://([-_a-z\d]+\.)?(vine)\.co/v/([^/?&]+)@si) {
+    (undef, $site, $id) = ($1, $2, $3);
+    $site = lc($site);
+    $url = "https://$site.co/v/$id";
+
+  # Instagram /p/NNNNN
+  } elsif ($url =~ m@^https?://([-_a-z\d]+\.)?(instagram)\.com/p/([^/?&]+)@si) {
+    (undef, $site, $id) = ($1, $2, $3);
+    $site = lc($site);
+    $url = "https://www.$site.com/p/$id";
+
+  # Twitter /USER/status/NNNNN
+  } elsif ($url =~ m@^https?://([-_a-z\d]+\.)?(twitter)\.com/([^/?&]+)
+                     /status/([^/?&]+)@six) {
+    my $user;
+    (undef, $site, $user, $id) = ($1, $2, $3, $4);
+    $site = lc($site);
+    $url = "https://$site.com/$user/status/$id";
 
   } else {
     return ();
@@ -347,11 +367,8 @@ sub scan_feed($$) {
                    ($author && $author =~ m/$kill_re/so) ||
                    ($text   && $text   =~ m/$kill_re/mo)));
 
-    if (!$kill_p && $url =~ m/youtube-dnalounge/) {
-      print STDERR "#### nokill $guid \"$author\" \"$title\" \"$text2\"\n\n";
-    }
-
     if ($verbose > 1) {
+      $guid = '<undef>' unless defined ($guid);
       if ($kill_p) {
         print STDERR "$progname:   killfile $guid \"$author\" \"$title\" \"$text2\"\n";
       } elsif ($old_p) {
@@ -400,7 +417,7 @@ sub scan_feed($$) {
         next;
       }
 
-      push @all_urls, [ $u, $author, $title ];
+      push @all_urls, [ $u, $author, $title, $_ ];
       print STDERR "$progname:     found $u\n" if ($verbose > 1);
     }
   }
@@ -625,7 +642,7 @@ sub pull_feeds($$) {
     $ftitle2 = undef if ($ftitle2 =~ m/^http/si);
 
     foreach my $P (reverse (@new_urls)) {
-      my ($url, $uauthor, $utitle) = @$P;
+      my ($url, $uauthor, $utitle, $rss_entry) = @$P;
       my $ftitle3 = $ftitle2;
 
       $uauthor = '' if ($ftitle3 =~ m/^(promonews|antville|reddit)/si);
@@ -638,6 +655,9 @@ sub pull_feeds($$) {
 
       next unless download_url ($url, $utitle, $ftitle3, $bwlimit);
       next if $debug_p;
+
+print STDERR "## DL $url\n$feed\n$rss_entry\n\n"
+  if ($feed =~ m/youtube-dnalounge/si);
 
       unshift @hist, $url;  # put it on the front
       @hist = @hist[0 .. $max_hist-1] if (@hist > $max_hist);
