@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright © 2013-2017 Jamie Zawinski <jwz@jwz.org>
+# Copyright © 2013-2018 Jamie Zawinski <jwz@jwz.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -38,7 +38,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.54 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.62 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -240,6 +240,8 @@ sub scan_feed($$) {
     } else {
       return scan_youtube_user_feed ($uid, $url);
     }
+  } elsif ($url =~ m@youtube\.com/playlist\?list=([^?&]+)@si) {
+    $url = 'https://www.youtube.com/feeds/videos.xml?playlist_id=' . $1;
   } elsif ($url =~ m@vimeo.com/(album/([^/?&]+))@si) {
     $url = 'http://vimeo.com/' . $1 . '/rss';
   } elsif ($url =~ m@vimeo.com/(((channels|groups)/)?([^/?&]+))@si) {
@@ -254,6 +256,7 @@ sub scan_feed($$) {
   my $body = '';
 
   $LWP::Simple::ua->timeout(20);
+  $LWP::Simple::ua->agent ("$progname/$version");
 
   while (1) {
     $body = LWP::Simple::get ($url);
@@ -272,7 +275,7 @@ sub scan_feed($$) {
 
   utf8::decode ($body);  # Pack multi-byte UTF-8 back into wide chars.
 
-  error ("looks like HTML: $url") if ($body =~ m/^<(HEAD|!DOCTYPE)\b/si);
+  error ("looks like HTML: $url") if ($body =~ m/^\s*<(HEAD|!DOCTYPE)\b/si);
 
   $body =~ s/(<(entry|item)\b)/\001$1/gsi;
   my @items = split("\001", $body);
@@ -295,6 +298,7 @@ sub scan_feed($$) {
        ($link) = m@<media:content\b[^<>]*url=[\"\']?([^<>\"\"]+)@si
          unless $link;
     my ($guid) = m@<guid\b[^<>]*>([^<>]*)@s;
+       ($guid) = m@<id\b[^<>]*>([^<>]*)@s unless ($guid);
     my ($date) = m@<pubDate\b[^<>]*>([^<>]*)@s;
        ($date) = m@<published\b[^<>]*>([^<>]*)@s unless ($date);
     my ($html) = m@<content\b[^<>]*>\s*(.*?)</content@s;
@@ -336,6 +340,7 @@ sub scan_feed($$) {
     my $text2 = $text;
     $text2 =~ s/\\/\\\\/gs;
     $text2 =~ s/\n/\\n/gs;
+    $text2 =~ s/\"/\\"/gs;
 
 
     # promonews.tv doesn't include the videos in their RSS feed!
@@ -361,22 +366,29 @@ sub scan_feed($$) {
 
     $date = str2time ($date || '') || time();
     my $age = (time() - $date) / (60 * 60 * 24);
-    my $old_p = ($age > $max_days);
+    my $future_p = ($age < 0);
+    $future_p = 0 if ($url =~ m@www\.dnalounge\.com@s); # Kludge
+    my $old_p = ($age > $max_days || $future_p);
     my $kill_p = ($kill_re &&
-                  (($title  && $title  =~ m/$kill_re/so) ||
-                   ($author && $author =~ m/$kill_re/so) ||
-                   ($text   && $text   =~ m/$kill_re/mo)));
+                  (($title  && $title  =~ m/($kill_re)/so) ||
+                   ($author && $author =~ m/($kill_re)/so) ||
+                   ($text   && $text   =~ m/($kill_re)/mo)));
+    my $matched_text = $1;
 
-    if ($verbose > 1) {
-      $guid = '<undef>' unless defined ($guid);
-      if ($kill_p) {
-        print STDERR "$progname:   killfile $guid \"$author\" \"$title\" \"$text2\"\n";
-      } elsif ($old_p) {
-        print STDERR "$progname:   skipping $guid \"$author\" \"$title\"" .
-                     " (" . int($age) . " days old)\n";
-      } else {
-        print STDERR "$progname:   checking $guid \"$author\" \"$title\" \"$text2\"\n";
-      }
+    $guid = '<undef>' unless defined ($guid);
+    if ($kill_p) {
+      print STDERR "$progname:   killfile $guid \"$author\" \"$title\" \"$text2\" \"$matched_text\"\n"
+        if ($verbose > 1);
+    } elsif ($old_p) {
+      print STDERR "$progname:   skipping $guid \"$author\" \"$title\"" .
+                   " (" . int($age) . " days old)\n"
+        if ($verbose > 1);
+    } else {
+      print STDERR "$progname:   checking $guid \"$author\" \"$title\" \"$text2\"\n"
+        if ($verbose > 1);
+
+      #### Trying to debug video spammers.
+#      print STDERR "$progname: NOKILL: \"$author\" \"$title\" \"$text2\"\n" if ($url =~ m/dnalounge/s);
     }
 
     if (!$html) {
@@ -385,7 +397,8 @@ sub scan_feed($$) {
       next;
     }
 
-    $html =~ s@([\"\'])(//)@$1http:$2@gs;  # protocol-less URLs.
+    $html =~ s@([\"\'])(//)@$1http:$2@gs;      # protocol-less URLs.
+    $html =~ s@([a-z\d])(https?://)@$1 $2@gsi; # missing spaces
 
     my @urls = ();
     $html =~ s!\b(https?:[^\'\"\s<>]+)!{push @urls, $1; $1;}!gxse;
@@ -400,6 +413,10 @@ sub scan_feed($$) {
 
       # Youtube video with a bogus ID
       next if ($u =~ m/watch\?v=([^?&]*)/s && length($1) < 11);
+
+      # Omit twitter URLs in a Youtube comment
+      next if ($url =~ m@\byoutube\.com/@s &&
+               $u =~ m@\btwitter\.com/@s);
 
       next if ($dups{$u});
       $dups{$u} = 1;
@@ -518,6 +535,7 @@ sub download_url($$$$) {
   return 1 if ($? == 0);
   error ("$cmd[0]: core dumped!") if ($core);
   error ("$cmd[0]: signal $sig!") if ($sig);
+  error ("$cmd[0]: exited with $exit!") if ($exit > 1);
   print STDERR ("$progname: $cmd[0]: exited with $exit!\n") 
     if ($exit && $verbose);
   return 0;
@@ -655,9 +673,6 @@ sub pull_feeds($$) {
 
       next unless download_url ($url, $utitle, $ftitle3, $bwlimit);
       next if $debug_p;
-
-print STDERR "## DL $url\n$feed\n$rss_entry\n\n"
-  if ($feed =~ m/youtube-dnalounge/si);
 
       unshift @hist, $url;  # put it on the front
       @hist = @hist[0 .. $max_hist-1] if (@hist > $max_hist);
