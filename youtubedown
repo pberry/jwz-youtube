@@ -75,7 +75,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1238 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1254 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -1158,16 +1158,29 @@ sub video_url_size($$;$$$) {
   if ($segp) {
     my $i = 0;
     my $cl = 0;
+    my $total = scalar (@$url);
     foreach my $u2 (@$url) {
       my $append_p = ($i > 0);
       my $donep = ($i >= $max);
-      ($http, $head, $body) = get_url ($u2, undef, 
-                                       ($donep ? undef : $file),
-                                       $bwlimit,
-                                       ($donep ? 1 : $bytes),
-                                       $append_p);
-      # internal error if still 403
-      return () unless check_http_status ($id, $u2, $http, $noerror ? 0 : 2);
+
+      my $retries = 5;
+      for (my $j = 0; $j < $retries; $j++) {
+        ($http, $head, $body) = get_url ($u2, undef, 
+                                         ($donep ? undef : $file),
+                                         $bwlimit,
+                                         ($donep ? 1 : $bytes),
+                                         $append_p);
+        last if (check_http_status ($id, $u2, $http, 0)); # 200
+        print STDERR "$progname: $http: retrying $u2\n"
+          if ($verbose > 1);
+      }
+
+      # internal error if still 403 after retrying.
+      return () unless check_http_status ($id,
+                                          "$url segment $i/$total" .
+                                          " after $retries tries: $u2",
+                                          $http,
+                                          ($noerror ? 0 : 2));
 
       my ($s2) = ($head =~ m@^Content-Range:\s* bytes \s+ [-\d]+ / (\d+) @mix);
          ($s2) = ($head =~ m@^Content-Length: \s* (\d+) @mix)
@@ -2052,6 +2065,19 @@ my %ciphers = (
   'player-vflWnjS_n/en_US/base' => '17850 w64 w66 s2 w49 s2 r',   # 15 Nov 2018
   'player_ias-vflfmGnOV/en_US/base' => '17855 w49 s3 r w44 w32 s3',# 20 Nov 2018
   'player-vfl718orE/en_US/base' => '17855 w49 s3 r w44 w32 s3',   # 20 Nov 2018
+  'player_ias_remote_ux-vflQA1gIN/en_US/base' => '17855 w49 s3 r w44 w32 s3',# 20 Nov 2018
+  'player-vflyUEprh/en_US/base' => '17856 w36 s3 w20 r w70 s3 r w29',# 21 Nov 2018
+  'player-vflX9LQZI/en_US/base' => '17862 s1 r s2 w16 s1 r s2 w26',# 27 Nov 2018
+  'player-vfl-6ni-d/en_US/base' => '17863 w66 r s1 r',            # 28 Nov 2018
+  'player-vflBGiA6J/en_US/base' => '17864 w15 s3 w19 s3 r',       # 29 Nov 2018
+  'player-vflooFjaN/en_US/base' => '17865 w49 r w24 r',           # 30 Nov 2018
+  'player-vflRjqq_w/en_US/base' => '17869 w18 s2 w6 s2 r',        # 04 Dec 2018
+  'player-vflrVSewe/en_US/base' => '17871 w33 w18 s1 w34 r s2 r s2',# 06 Dec 2018
+  'player-vflf5K4kk/en_US/base' => '17871 w33 w18 s1 w34 r s2 r s2',# 06 Dec 2018
+  'player_ias-vflA8SWf9/en_US/base' => '17872 s1 w51 r s1 w67 s1 w16 r s1',# 07 Dec 2018
+  'player_ias-vflsBa1u2/en_US/base' => '17876 r w48 r w65',       # 11 Dec 2018
+  'player_ias-vflXas3a_/en_US/base' => '17877 s1 r w15 w8 r w12', # 12 Dec 2018
+  'player_ias-vfl4UMq4Z/en_US/base' => '17880 w22 w43 s1 w10 w8 r s3 r s3',# 15 Dec 2018
 );
 
 
@@ -2293,7 +2319,7 @@ sub guess_cipher($;$$) {
       # enough to not contain any {} inside it.
       my ($fn3) = ($body =~ m@ \b \"? \Q$f\E \"? : \s*
                                function \s* \( [^(){}]*? \) \s*
-                                ( { [^{}]+ } )
+                                ( \{ [^{}]+ \} )
                              @sx);
       if (!$fn3) {
         $fn =~ s/;/;\n\t    /gs;
@@ -2500,10 +2526,10 @@ sub apply_signature($$$$$) {
         my $L2 = sprintf("%d %d.%d", length($sig), length($c), length($d));
         foreach ($o, $n) { s/\./.\n          /gs; }
         my $s = "cipher:   $cipher\n$L1: $o\n$L2: $n";
-        $error_whiteboard .= "\n" if $error_whiteboard;
+#        $error_whiteboard .= "\n" if $error_whiteboard;
         $fmt = '?' unless defined($fmt);
-        $error_whiteboard .= "$fmt:       " .
-                             "https://www.youtube.com/watch?v=$id\n$s";
+#        $error_whiteboard .= "$fmt:       " .
+#                             "https://www.youtube.com/watch?v=$id\n$s";
         if ($verbose > 3) {
           print STDERR "$progname: $id: deciphered and replaced signature\n";
           $s =~ s/^([^ ]+)(  )/$2$1/s;
@@ -2754,9 +2780,11 @@ sub youtube_parse_dashmpd($$$$) {
               # abr  => undef,
             );
 
-    # my $old = $into->{$k};
-    # if (!defined ($old) || !$old->{dashp}) {
-    if (!$into->{$k}) {
+    # Sometimes the DASH URL for a format works but the non-DASH URL is 404.
+    my $prefer_dash_p = 1;
+    my $old = $into->{$k};
+    $old = undef if ($prefer_dash_p && $old && !$old->{dashp});
+    if (!$old) {
       $into->{$k} = \%v;
       print STDERR "$progname: $id: found fmt $k" .
             (ref($url) eq 'ARRAY' ? " (" . scalar(@$url) . " segs)" : "") .
@@ -4034,7 +4062,7 @@ sub pick_download_format($$$$$) {
 
     # WebM must always be paired with Vorbis audio.
     # MP4 must always be paired with MP3, M4A or AAC audio.
-    my $want_vorbis_p = ($known_formats{$vfmt}->{v} =~ m/^webm/si);
+    my $want_vorbis_p = ($vfmt && $known_formats{$vfmt}->{v} =~ m/^webm/si);
     foreach my $target (@pref_ao) {
       next unless $fmts->{$target};
       my $is_vorbis_p = (($known_formats{$target}->{a} || '') =~ m/^vor/si);
@@ -5212,7 +5240,10 @@ sub download_video_url($$$$$$$$$$$$) {
 
     if ($size_p) {
       if (! (($w && $h) || $abr)) {
-        my ($w2, $h2, $s2, $a2) = video_url_size ($id, $url2, $ct, $bwlimit);
+        my ($w2, $h2, $s2, $a2) =
+          video_url_size ($id, $url2, $ct, $bwlimit,
+                          (defined($force_fmt) && $force_fmt eq 'all'
+                           ? 1 : 0));
         $w    = $w2 if $w2;
         $h    = $h2 if $h2;
         $size = $s2 if $s2;
@@ -5284,13 +5315,26 @@ sub download_video_url($$$$$$$$$$$$) {
         foreach my $url3 (@$url2) {
           my $append_p = ($i > 0);
           print STDERR "\n" if ($i && $progress_p && $verbose > 2);
-          print STDERR "$progname: downloading segment $i/$total\n"
-            if ($verbose > 2);
-          my ($http, $head, $body) = get_url ($url3, undef, $file,
-                                              $bwlimit, undef,
-                                              $append_p, 0);
-          # internal error if still 403
-          check_http_status ($id, $url3, $http, 2);
+
+          my ($http, $head, $body);
+          my $retries = 5;
+          for (my $j = 0; $j < $retries; $j++) {
+
+            print STDERR "$progname: downloading segment $i/$total\n"
+              if ($verbose > 2);
+            ($http, $head, $body) = get_url ($url3, undef, $file,
+                                             $bwlimit, undef,
+                                             $append_p, 0);
+            last if (check_http_status ($id, $url3, $http, 0)); # 200
+            print STDERR "$progname: $http: retrying $url3\n"
+              if ($verbose > 1);
+          }
+
+          # internal error if still 403 after retrying.
+          check_http_status ($id,
+                             "$url segment $i/$total" .
+                             " after $retries tries: $url3",
+                             $http, 2);
 
           # When loading segmented URLs we only update the progress marker
           # when each segment is fully downloaded... but they're small,
