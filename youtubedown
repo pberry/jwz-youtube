@@ -75,7 +75,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1397 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1410 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -2220,6 +2220,19 @@ my %ciphers = (
   'player_ias-vflLAbfAI/en_US/base' => '18122 w9 s3 r s3 r w27 r s1 w64',# 14 Aug 2019
   'player_ias-vfl4WD7HR/en_US/base' => '18123 r w23 w30 r w40 r w65 w38',# 15 Aug 2019
   'player_ias-vflubst9M/en_US/base' => '18123 r w23 w30 r w40 r w65 w38',# 15 Aug 2019
+  'player_ias-vflshR-OW/en_US/base' => '18127 r s1 w19',          # 19 Aug 2019
+  'player_ias-vflR4bDhL/en_US/base' => '18128 r w34 w50 s1 r w68',# 20 Aug 2019
+  'player_ias-vflRCamp0/en_US/base' => '18128 r w34 w50 s1 r w68',# 20 Aug 2019
+  'player_ias-vfle9vlRm/en_US/base' => '18130 w20 s1 r s3 w35',   # 22 Aug 2019
+  'player_ias-vflQ3KR0i/en_US/base' => '18130 w20 s1 r s3 w35',   # 22 Aug 2019
+  'player_ias-vflRUnhQH/en_US/base' => '18134 r s2 r w37 s1 w9 s1 r',# 26 Aug 2019
+  'player_ias-vflxmW2zg/en_US/base' => '18135 r s3 w56 r s3 w11 s2 w57',# 27 Aug 2019
+  'player_ias-vflkpoWE6/en_US/base' => '18135 r s3 w56 r s3 w11 s2 w57',# 27 Aug 2019
+  'player_ias-vflB-cY7Z/en_US/base' => '18137 s2 r s2 r w37 s2 r s1',# 29 Aug 2019
+  'player_ias-vflt4leIo/en_US/base' => '18138 w35 w30 r w2 s3 r w8 s2',# 30 Aug 2019
+  'player_ias-vflL8qGmP/en_US/base' => '18142 r s3 r w36 w42',    # 03 Sep 2019
+  'player_ias-vfl-_sce4/en_US/base' => '18143 r w52 r s1 w20 r',  # 04 Sep 2019
+  'player_ias-vfl9X5OgR/en_US/base' => '18143 r w52 r s1 w20 r',  # 04 Sep 2019
 );
 
 
