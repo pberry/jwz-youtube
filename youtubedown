@@ -75,7 +75,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1410 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1427 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -2233,6 +2233,20 @@ my %ciphers = (
   'player_ias-vflL8qGmP/en_US/base' => '18142 r s3 r w36 w42',    # 03 Sep 2019
   'player_ias-vfl-_sce4/en_US/base' => '18143 r w52 r s1 w20 r',  # 04 Sep 2019
   'player_ias-vfl9X5OgR/en_US/base' => '18143 r w52 r s1 w20 r',  # 04 Sep 2019
+  'player_ias-vflpfvoVH/en_US/base' => '18149 r w52 r w11 s2 r s2',# 10 Sep 2019
+  'player_ias-vfl2pEEGH/en_US/base' => '18151 w25 s3 w11 s1 w25 w29 r w28 s2',# 12 Sep 2019
+  'player_ias-vflbxHFzR/en_US/base' => '18152 r s2 w48 r',        # 13 Sep 2019
+  'player_ias-vfl8E5RS_/en_US/base' => '18154 r s2 r w14 w70 w51',# 15 Sep 2019
+  'player_ias-vflBg-eSP/en_US/base' => '18156 w15 r s1 w60 s2 w47 s3 r',# 17 Sep 2019
+  'player_ias-vflFWJS6F/en_US/base' => '18159 w67 s1 r s3',       # 20 Sep 2019
+  'player_ias-vfleGIwAA/en_US/base' => '18159 w67 s1 r s3',       # 20 Sep 2019
+  'player_ias-vflf1C3PW/en_US/base' => '18163 r w30 s3 w48 w54 s2',# 24 Sep 2019
+  'player_ias-vflSXUoF7/en_US/base' => '18164 w59 s3 w31 s2 w3 s3 r s1 r',# 25 Sep 2019
+  'player_ias-vfl-Yp-48/en_US/base' => '18166 r w69 w9 r w58 s3 r w8 s2',# 27 Sep 2019
+  'player_ias-vflKkjtvu/en_US/base' => '18169 w51 r s2',          # 30 Sep 2019
+  'player_ias-vflhIMmpR/en_US/base' => '18170 w24 w7 r w54 s1 r w65',# 01 Oct 2019
+  'player_ias-vflHafnhm/en_US/base' => '18171 s2 w36 w34',        # 02 Oct 2019
+  'player_ias-vflgyMPMy/en_US/base' => '18172 w15 r s1 w33 w44 w39 w38 r s1',# 03 Oct 2019
 );
 
 
@@ -3209,6 +3223,9 @@ sub load_youtube_formats($$$) {
     errorI ("$id: no formats available: $err");
   }
 
+  $fmts{thumb} = "https://img.youtube.com/vi/" . $id . "/0.jpg"
+    unless ($fmts{thumb});
+
   return \%fmts;
 }
 
@@ -3299,6 +3316,8 @@ sub load_vimeo_formats($$$) {
   my ($files2) = ($body =~ m@   "progressive" : \s* \[ ( .+? \] ) \} @six);
   my $files    = ($files0 || '') . ($files1 || '') . ($files2 || '');
 
+  my ($thumb)  = ($body =~ m/"thumbs":{"\d+":"(.*?)"/s);
+
   # Sometimes we get empty-ish data for "Private Video", but HTTP 200.
   $err = "No video info (Private video?)"
     if (!$err && !$title && !$files);
@@ -3359,6 +3378,8 @@ sub load_vimeo_formats($$$) {
       $i++;
     }
   }
+
+  $fmts{thumb} = $thumb if ($thumb);
 
   return \%fmts;
 }
@@ -3504,7 +3525,9 @@ sub load_instagram_formats($$$) {
 			   content="([^<>]*?)"@six);
   my ($ct)    = ($body =~ m@<meta \s+ property="og:video:type" \s+
 			   content="([^<>]*n?)"@six);
-  my ($year) = ($body =~ m@\bdatetime="(\d{4})-@six);
+  my ($year)  = ($body =~ m@\bdatetime="(\d{4})-@six);
+  my ($thumb) = ($body =~ m@<meta \\s+ property="og:image"     \s+
+			   content="([^<>]*n?)"@six);
 
   error ("$id: no video in $url")
     unless ($src && $w && $h && $ct && $title);
@@ -3527,6 +3550,7 @@ sub load_instagram_formats($$$) {
 
   $fmts->{title} = $title;
   $fmts->{year}  = $year;
+  $fmts->{thumb} = $thumb if $thumb;
 
   return $fmts;
 }
@@ -3686,7 +3710,8 @@ sub pick_download_format($$$$$) {
   if (defined($force_fmt) && $force_fmt eq 'all') {
     my @all = ();
     foreach my $k (keys %$fmts) {
-      next if ($k eq 'title' || $k eq 'year' || $k eq 'cipher');
+      next if ($k eq 'title' || $k eq 'year' || $k eq 'cipher' ||
+               $k eq 'thumb');
       push @all, $k;
     }
     return sort { $a <=> $b } @all;
@@ -3719,7 +3744,8 @@ sub pick_download_format($$$$$) {
 
     my $best = undef;
     foreach my $k (keys %$fmts) {
-      next if ($k eq 'title' || $k eq 'year' || $k eq 'cipher');
+      next if ($k eq 'title' || $k eq 'year' || $k eq 'cipher' ||
+               $k eq 'thumb');
       $best = $k
         if (!defined($best) ||
             (($fmts->{$k}->{size} || 0) > ($fmts->{$best}->{size} || 0) ||
@@ -4203,7 +4229,8 @@ sub pick_download_format($$$$$) {
   {
     my @unk = ();
     foreach my $k (sort keys %$fmts) {
-      next if ($k eq 'title' || $k eq 'year' || $k eq 'cipher');
+      next if ($k eq 'title' || $k eq 'year' || $k eq 'cipher' ||
+               $k eq 'thumb');
       push @unk, $k if (!$known_formats{$k});
     }
     print STDERR "$progname: $id: unknown format " . join(', ', @unk) .
@@ -4216,7 +4243,8 @@ sub pick_download_format($$$$$) {
     foreach my $k (sort { ($a =~ m/^\d+$/s ? $a : 0) <=>
                           ($b =~ m/^\d+$/s ? $b : 0) }
                    keys(%$fmts)) {
-      next if ($k eq 'title' || $k eq 'year' || $k eq 'cipher');
+      next if ($k eq 'title' || $k eq 'year' || $k eq 'cipher' ||
+               $k eq 'thumb');
       print STDERR sprintf("%s:   %3d (%s)\n",
                            $progname, $k,
                            ($known_formats{$k}->{desc} || '?') .
