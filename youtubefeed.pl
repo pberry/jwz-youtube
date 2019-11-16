@@ -38,7 +38,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.64 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.65 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -62,6 +62,12 @@ sub html_unquote($) {
   return HTML::Entities::decode_entities ($s);
 }
 
+sub url_unquote($) {
+  my ($u) = @_;
+  $u =~ s/[+]/ /g;
+  $u =~ s/%([a-z0-9]{2})/chr(hex($1))/ige;
+  return $u;
+}
 
 # Duplicated in youtubedown.
 #

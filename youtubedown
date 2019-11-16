@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright © 2007-2018 Jamie Zawinski <jwz@jwz.org>
+# Copyright © 2007-2019 Jamie Zawinski <jwz@jwz.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -44,23 +44,10 @@
 #
 # For playlists, it will download each video to its own file.
 #
-# You can also use this as a bookmarklet: put it somewhere on your web server
-# as a .cgi, then bookmark this URL:
-#
-#   javascript:location='http://YOUR_SITE/youtubedown.cgi?url='+location
-#
-# or, the same thing but using a small popup window,
-#
-#   javascript:window.open('http://YOUR_SITE/youtubedown.cgi?url='+location.toString().replace(/%26/g,'%2526').replace(/%23/g,'%2523'),'youtubedown','width=400,height=50,top=0,left='+((screen.width-400)/2))
-#
-#
-# When you click on that bookmarklet in your toolbar, it will give you
-# a link on which you can do "Save Link As..." and be offered a sensible
-# file name by default.
-#
-# Make sure you host that script on your *local machine*, because the entire
-# video content will be proxied through the server hosting the CGI, and you
-# don't want to effectively download everything twice.
+# You can also use this as a bookmarklet, so that you can have a toolbar
+# button or bookmark that saves the video you are currently watching to
+# your desktop. See https://www.jwz.org/hacks/youtubedown.cgi for instructions
+# on how to do that.
 #
 # Created: 25-Apr-2007.
 
@@ -75,7 +62,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1427 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1455 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -95,26 +82,8 @@ $ENV{PATH} = "/opt/local/bin:$ENV{PATH}";   # for macports ffmpeg
 my @video_extensions = ("mp4", "flv", "webm");
 
 
-my $html_head =
-  ("<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\"\n" .
-   "	  \"http://www.w3.org/TR/html4/loose.dtd\">\n" .
-   "<HTML>\n" .
-   " <HEAD>\n" .
-   "  <TITLE></TITLE>\n" .
-   " <STYLE TYPE=\"text/css\">\n" .
-   "  body { font-family: Arial,Helvetica,sans-serif; font-size: 12pt;\n" .
-   "         color: #000; background: #FF0; white-space: nowrap; }\n" .
-   "  a { font-weight: bold; }\n" .
-   "  .err { font-weight: bold; color: #F00; white-space: normal; }\n" .
-   " </STYLE>\n" .
-   " </HEAD>\n" .
-   " <BODY>\n");
-my $html_tail = " </BODY>\n</HTML>\n";
-
-
 # Anything placed on this list gets unconditionally deleted when this
-# script exits, even if abnormally.  This is how CGI-mode cleans up
-# after itself.
+# script exits, even if abnormally.
 #
 my %rm_f;
 END { rmf(); }
@@ -149,27 +118,7 @@ sub error($) {
 
   utf8::decode ($err);  # Pack multi-byte UTF-8 back into wide chars.
 
-  if (defined ($ENV{HTTP_HOST})) {
-    $err =~ s/&/&amp;/gs;
-    $err =~ s/</&lt;/gs;
-    $err =~ s/>/&gt;/gs;
-
-    # $error_whiteboard kludge
-    $err =~ s/^\t//gm;
-    $err =~ s@\n\n(.*)\n\n@<PRE STYLE="font-size:9pt">$1</PRE>@gs;
-    # $err =~ s/\n/<BR>/gs;
-
-    $err = $html_head . '<P><SPAN CLASS="err">ERROR:</SPAN> ' . $err .
-           $html_tail;
-    $err =~ s@(<TITLE>)[^<>]*@$1$progname: Error@gsi;
-
-    print STDOUT ("Content-Type: text/html\n" .
-                  "Status: 500\n" .
-                  "\n" .
-                  $err);
-    die "$err\n" if ($verbose > 2);  # For debugging CGI.
-    exit 1;
-  } elsif ($noerror) {
+  if ($noerror) {
     die "$err\n";
   } else {
     print STDERR "$progname: $err\n";
@@ -250,24 +199,16 @@ my $progress_time = 0;
 my $progress_rubout = '';
 my $progress_last = 0;
 
-sub draw_progress($$$$) {
-  my ($ratio, $bps, $eof, $cgi_p) = @_;   # bits per sec, not bytes
+sub draw_progress($$$) {
+  my ($ratio, $bps, $eof) = @_;   # bits per sec, not bytes
 
-  my $cols = ($cgi_p ? 100 : 64);
+  my $cols = 64;
   my $ticks = int($cols * $ratio);
   my $cursep = !($verbose > 4) && (($ENV{TERM} || 'dumb') ne 'dumb');
 
   my $now = time();
 
   return if ($progress_time == $now && !$eof);
-
-  if ($cgi_p) {			# See comment on "X-Heartbeat" in do_cgi().
-    print STDOUT ".";
-    $ticks = $progress_ticks;
-    $progress_time = $now;
-    $progress_ticks = 0 if ($eof);
-    return;
-  }
 
   if ($now > $progress_last) {
     $progress_last = $now;
@@ -578,7 +519,7 @@ sub get_url_1($;$$$$$$$) {
   $cl = $start_byte + $max_bytes
     if ($cl && $max_bytes && $start_byte + $max_bytes < $cl);
 
-  $progress_p = 0 if (($progress_p || '') ne 'cgi' && ($cl || 0) <= 0);
+  $progress_p = 0 if (($cl || 0) <= 0);
 
   my $out;
 
@@ -625,7 +566,6 @@ sub get_url_1($;$$$$$$$) {
   my $bytes = 0;
   my $body = '';
 
-  my $cgi_p = ($progress_p && $progress_p eq 'cgi');
   my $start_time = time();
   my $actual_bits_per_sec = 0;
 
@@ -657,7 +597,7 @@ sub get_url_1($;$$$$$$$) {
       $actual_bits_per_sec = $bytes * 8 / ($elapsed <= 0 ? 1 : $elapsed);
 
       draw_progress (($start_byte + $bytes) / $document_length,
-                     $actual_bits_per_sec, 0, $cgi_p)
+                     $actual_bits_per_sec, 0)
         if ($progress_p);
 
       # If we do a read while at EOF, sometimes Youtube hangs for ~30 seconds
@@ -697,7 +637,7 @@ sub get_url_1($;$$$$$$$) {
   }
 
   draw_progress (($cl ? ($start_byte + $bytes) / $document_length : 0),
-                 $actual_bits_per_sec, 1, $cgi_p)
+                 $actual_bits_per_sec, 1)
     if ($progress_p);
 
   if ($to_file && !$ok_p) {
@@ -842,6 +782,13 @@ sub get_url($;$$$$$$$) {
       my ($location) = ($head =~ m@^Location:[ \t]*([^\r\n]+)@mi);
       if (! $location) {
         $http = 'HTTP/1.1 500 no location header in 30x';
+        error ($http);
+
+      } elsif ($location =~ m@\bgoogle\.com/sorry/@s) {
+        # Short circuit Youtube's CAPCHA error instead of retrying
+        $http = 'HTTP/1.1 403 CAPCHA required: ' . $location;
+        error ($http);
+
       } else {
         print STDERR "$progname: redirect from $url to $location\n"
           if ($verbose > 3);
@@ -992,11 +939,6 @@ sub which($) {
 # That's what "curl --xattr" does.  So we write that too.
 #
 #      xattr -p user.xdg.origin.url FILE
-#
-# Unfortunately, in CGI-mode, the file is actually being downloaded by
-# the browser itself, so the metadata URL that gets written is the
-# youtubedown.cgi URL.  The original URL info is still buried in there,
-# but it's messier.
 #
 sub write_file_metadata_url($$$) {
   my ($file, $id, $url) = @_;
@@ -2247,6 +2189,29 @@ my %ciphers = (
   'player_ias-vflhIMmpR/en_US/base' => '18170 w24 w7 r w54 s1 r w65',# 01 Oct 2019
   'player_ias-vflHafnhm/en_US/base' => '18171 s2 w36 w34',        # 02 Oct 2019
   'player_ias-vflgyMPMy/en_US/base' => '18172 w15 r s1 w33 w44 w39 w38 r s1',# 03 Oct 2019
+  'player_ias-vflaagmZn/en_US/base' => '18174 w67 r w21 r s1',    # 05 Oct 2019
+  'player_ias-vflLF-qe_/en_US/base' => '18174 w67 r w21 r s1',    # 05 Oct 2019
+  'player_ias-vflm8XufX/en_US/base' => '18177 r w22 s3 w42 r',    # 08 Oct 2019
+  'player_ias-vflp-7p2p/en_US/base' => '18177 r w22 s3 w42 r',    # 08 Oct 2019
+  'player_ias-vflMzJYzW/en_US/base' => '18179 w68 s1 w57 r s1 w23 s1',# 10 Oct 2019
+  'player_ias-vflNSW9LL/en_US/base' => '18180 s2 r s3 w65 s3 r s1',# 11 Oct 2019
+  'player_ias-vflZy72vV/en_US/base' => '18183 w33 w37 w16 r s3',  # 14 Oct 2019
+  'player_ias-vflCPQUIL/en_US/base' => '18184 r w17 s1 w36 w37 s2',# 15 Oct 2019
+  'player_ias-vflqs_iv4/en_US/base' => '18185 w8 w43 r s1 w40 s1',# 16 Oct 2019
+  'player_ias-vflzOmLM_/en_US/base' => '18185 w8 w43 r s1 w40 s1',# 16 Oct 2019
+  'player_ias-vflrnurMS/en_US/base' => '18188 w26 s3 w15 w26 s2 r',# 19 Oct 2019
+  'player_ias-vflYUXieR/en_US/base' => '18190 w4 r w31 s1 r s1 r',# 21 Oct 2019
+  'player_ias-vflfmpDLj/en_US/base' => '18192 r w5 r s2 r w34 r w16 r',# 23 Oct 2019
+  'player_ias-vflID-9v_/en_US/base' => '18192 r w5 r s2 r w34 r w16 r',# 23 Oct 2019
+  'player_ias-vflsEMaQv/en_US/base' => '18193 r w18 w7 w12 s3 r', # 24 Oct 2019
+  'player_ias-vflje5zha/en_US/base' => '18194 s2 w31 s3 w32 w2 s1 r',# 25 Oct 2019
+  'player_ias-vflLT_S1E/en_US/base' => '18198 r w65 r',           # 29 Oct 2019
+  'player_ias-vflGnuoiU/en_US/base' => '18199 w1 r s1 r',         # 30 Oct 2019
+  'player_ias-vflO1GesB/en_US/base' => '18200 w13 w56 s2 r s2',   # 31 Oct 2019
+  'player_ias-vflaGJCFN/en_US/base' => '18211 s3 w64 w35 r',      # 11 Nov 2019
+  'player_ias-vflu-qpOO/en_US/base' => '18211 s3 w64 w35 r',      # 11 Nov 2019
+  'player_ias-vflFlp-mq/en_US/base' => '18214 w70 r w67 w34',     # 14 Nov 2019
+  'player_ias-vflhctYB3/en_US/base' => '18216 w6 r s2',           # 16 Nov 2019
 );
 
 
@@ -2357,6 +2322,9 @@ sub guess_cipher($;$$) {
     check_http_status ($id, $url, $http, 2);
 
     ($cipher_id) = page_cipher_base_url ($url, $body);
+
+    error ("$id: rate limited")
+      if (!$cipher_id && $body =~ m/large volume of requests/);
     errorI ("$id: unparsable cipher url: $url\n\nBody:\n\n$body")
       unless $cipher_id;
   }
@@ -2892,8 +2860,9 @@ my $blocked_re = join ('|',
                         'Private video\?',
                         'piece of shit',
                         'you are a human',
-                        '^[^:]+: exists: ',
+                        '\bCAPCHA required',
                         '\b429 Too Many Requests',
+                        '^[^:]+: exists: ',
                        ));
 
 
@@ -4648,175 +4617,6 @@ sub file_exists_with_suffix($;) {
 }
 
 
-# Generates HTML output that provides a link for direct downloading of
-# the highest-resolution underlying video.  The HTML also lists the
-# video dimensions and file size, if possible.
-#
-sub cgi_output($$$$$$@) {
-  my ($id, $title, $orig_url, $list_idx, $list_count, $bwlimit, @targets) = @_;
-
-  my $video  = $targets[0];
-  my $audio  = $targets[1];
-  my $premux = $targets[2];
-
-  my ($w, $h, $size) = video_url_size ($id,
-                                       $video->{url},
-                                       $video->{content_type},
-                                       $bwlimit, 1);
-  $size = -1 unless defined($size);
-
-  my ($w3, $h3, $size3) = video_url_size ($id,
-                                          $premux->{url},
-                                          $premux->{content_type},
-                                          $bwlimit, 1)
-    if ($premux);
-  $size3 = -1 unless defined($size3);
-
-  my $ss = ($size <= 0 ? '<SPAN CLASS="err">size unknown</SPAN>' :
-            fmt_size($size));
-  my $wh = ($w && $h ? "$w &times; $h" : "resolution unknown");
-  $wh = '<SPAN CLASS="err">' . $wh . '</SPAN>'
-    if (($w || 0) < 1024);
-  $ss = "$wh, $ss";
-
-  my $ss3 = ($size3 <= 0 ? '<SPAN CLASS="err">size unknown</SPAN>' :
-             fmt_size($size3))
-    if ($premux);
-  my $wh3 = ($w3 && $h3 ? "$w3 &times; $h3" : "resolution unknown");
-  $wh3 = '<SPAN CLASS="err">' . $wh3 . '</SPAN>'
-    if (($w3 || 0) < 1024);
-  $ss3 = "$wh3, $ss3"
-    if ($wh3 && $ss3);
-
-  my $file = $video->{file};
-  my $url  = $video->{url};
-  my $ct   = $video->{content_type};
-  my $url2 = $audio->{url} if ($audio);
-  my $ct2  = $audio->{content_type} if ($audio);
-  my $url3 = $premux->{url} if ($premux);
-  my $ct3  = $premux->{content_type} if ($premux);
-
-  # We can't just include the full list of segmented URLs here because then
-  # the URL is too long -- even if we split out the common prefix! Blehhhhh
-  #
-  if (ref($url) eq 'ARRAY') {
-    $url = 'mux';
-    $url2 = undef;
-  }
-
-  # Convert "[XXXXXX 137.mp4]" down to unmuxed "[XXXXXX.mp4]".
-  $file =~ s@( \[[a-z\d]+) \d+(\]\.[^./]+)$@$1$2@si;
-
-
-  # I had hoped that transforming
-  #
-  #   https://v5.lscache2.googlevideo.com/videoplayback?ip=....
-  #
-  # into
-  #
-  #   https://v5.lscache2.googlevideo.com/videoplayback/Video+Title.mp4?ip=....
-  #
-  # would trick Safari into downloading the file with a sensible file name.
-  # Normally Safari picks the target file name for a download from the final
-  # component of the URL.  Unfortunately that doesn't work in this case,
-  # because the "videoplayback" URL is sending
-  #
-  #   Content-Disposition: attachment; filename="video.mp4"
-  #
-  # which overrides my trickery, and always downloads it as "video.mp4"
-  # regardless of what the final component in the path is.
-  #
-  # However, if you do "Save Link As..." on this link, the default file
-  # name is sensible!  So it takes two clicks to download it instead of
-  # one.  Oh well, I can live with that.
-  #
-  # UPDATE: If we do "proxy=" instead of "redir=", then all the data moves
-  # through this CGI, and it will insert a proper Content-Disposition header.
-  # However, if the CGI is not hosted on localhost, then this will first
-  # download the entire video to your web host, then download it again to
-  # your local machine.
-  #
-  # Sadly, Vimeo is now doing user-agent sniffing on the "moogaloop/play/"
-  # URLs, so this is now the *only* way to make it work: if you try to
-  # download one of those URLs with a Safari/Firefox user-agent, you get
-  # a "500 Server Error" back.
-  #
-  # Also, "proxy=" is the only way to make muxing work, and thus the only
-  # way to download HD videos from Youtube.
-  #
-  my $proxy_p = 1;
-  utf8::encode ($file);   # Unpack wide chars into multi-byte UTF-8.
-
-  $url = (url_quote($url) .		# video URL
-          ($url2
-           ? '|' . url_quote($url2)	# audio URL
-           : ''));
-  $ct .= "|$ct2" if $ct2;
-
-  $url3 = url_quote($url3) if $url3;	# premuxed URL
-
-
-  my $muxed_file = $file;
-  $muxed_file =~ s@\.(audio-only|video-only)\.@.@gs;
-
-  $url = ($ENV{SCRIPT_NAME} .
-          '/' . url_quote($muxed_file) .
-          '?src=' . url_quote($orig_url) .
-          '&' . ($proxy_p? 'proxy' : 'redir') .
-          '=' . $url .
-          '&ct=' . $ct
-         );
-  $url3 = ($ENV{SCRIPT_NAME} .
-          '/' . url_quote($muxed_file) .
-          '?src=' . url_quote($orig_url) .
-          '&' . ($proxy_p? 'proxy' : 'redir') .
-          '=' . $url3 .
-          '&ct=' . $ct3
-         )
-    if ($url3);
-
-  $url  = html_quote ($url);
-  $url3 = html_quote ($url3) if ($url3);
-
-  my $title2 = $title;
-  $title2 .= " [$id]" if ($append_suffix_p);
-  $title  = html_quote ($title);
-  $title2 = html_quote ($title2);
-
-
-  # New HTML5 feature: <A DOWNLOAD=...> seems to be a client-side way of
-  # doing the same thing that "Content-Disposition: attachment; filename="
-  # does.  Unfortunately, even with this, Safari still opens the .MP4 file
-  # after downloading instead of just saving it.
-
-  my $body = '';
-
-  if ($list_idx == 0) {
-    $body .= "Content-Type: text/html; charset=UTF-8\n\n";
-    $body .= $html_head . "\n";
-    $body =~ s@(<TITLE>)[^<>]*@$1Download "$title"@gsi;
-    $body .= "<B>Playlist: $list_count items</B><P>\n" if ($list_count);
-  }
-
-  $body .= "  Save Link As: <B>$title</B><BR>\n";
-  $body .= (" &nbsp; &nbsp; &nbsp; &bull; " .
-            "<A HREF=\"$url\"\n    DOWNLOAD=\"$title2\">$ss</A>");
-  $body .= ("<BR>\n" .
-            " &nbsp; &nbsp; &nbsp; &bull; " .
-            "<A HREF=\"$url3\"\n    DOWNLOAD=\"$title2\">$ss3</A>")
-    if ($url3);
-
-  $body .= "\n<P>";
-
-  if ($list_count == 0 || $list_idx == $list_count-1) {
-    $body .= $html_tail;
-  }
-
-  binmode (STDOUT, ':raw');
-  print STDOUT $body;
-}
-
-
 # There are so many ways to specify URLs of videos... Turn them all into
 # something sane and parsable.
 #
@@ -4978,7 +4778,6 @@ sub canonical_url($;) {
 sub mux_downloaded_files($$$$$$$) {
   my ($id, $url, $title, $v1, $v2, $muxed_file, $progress_p) = @_;
 
-  my $cgi_p = ($progress_p && $progress_p eq 'cgi');
   my $video_file = $v1->{file};
   my $audio_file = $v2->{file};
 
@@ -5006,7 +4805,10 @@ sub mux_downloaded_files($$$$$$$) {
 
   my $desc = 'merging';
   my $expect_same_size_p = 1;
-  if ($video_file =~ m/\.webm$/si && $webm_transcode_p) {
+
+  if ($webm_transcode_p &&
+      ($v1->{content_type} =~ m/webm$/si ||
+       $v2->{content_type} =~ m/webm$/si)) {
     # We are transcoding from WebM/Vorbis to MP4/AAC. It's slow.
     $desc = 'transcoding';
     $muxed_file =~ s@\.[^./]+$@.mp4@gsi;
@@ -5022,13 +4824,17 @@ sub mux_downloaded_files($$$$$$$) {
     push @cmd, ('-vcodec', 'copy',	# no re-encoding
                 '-acodec', 'copy');
   }
+
+  # If there's no extension on the "--out" file, default to MP4.
+  push @cmd, ('-f', 'mp4') unless ($muxed_file =~ m@\.[^/]+$@s);
   push @cmd, $muxed_file;
+
   $rm_f{$muxed_file} = 1;
 
   if ($verbose == 1) {
-    print STDERR "$progname: $id: $desc audio and video...\n";
+    print STDERR "$progname: $desc audio and video...\n";
   } elsif ($verbose > 1) {
-    print STDERR "$progname: $id: exec: '" . join("' '", @cmd) . "'\n";
+    print STDERR "$progname: $id: exec: $desc: '" . join("' '", @cmd) . "'\n";
   }
 
 
@@ -5067,7 +4873,6 @@ sub mux_downloaded_files($$$$$$$) {
         my $size = sysread ($err, $chunk, $bufsiz);
         last if ($nfound && !$size);   # closed
         $result .= $chunk;
-        print STDOUT "." if ($cgi_p);  # For the "X-Heartbeat" header
         if ($progress_p || $verbose > 2) {
           # Let's just assume ffmpeg never splits writes mid-line.
           # (Actually "rarely" is as good as "never")
@@ -5092,13 +4897,13 @@ sub mux_downloaded_files($$$$$$$) {
               my $cur = $1*60*60 + $2*60 + $3;
               my $elapsed = time() - $start_time;
               my $bps = $elapsed ? ($input_bytes * 8 / $elapsed) : 0;
-              draw_progress ($cur / $dur, $bps, 0, $cgi_p);
+              draw_progress ($cur / $dur, $bps, 0);
             }
           }
         }
       }
 
-      draw_progress (1, 0, 1, $cgi_p) if ($dur && $progress_p);
+      draw_progress (1, 0, 1) if ($dur && $progress_p);
 
       # The stderr from the subprocess has hit EOF, so the pid should be
       # dead momentarily.
@@ -5195,11 +5000,11 @@ sub load_formats($$) {
 }
 
 
-sub download_video_url($$$$$$$$$$$$);
-sub download_video_url($$$$$$$$$$$$) {
+sub download_video_url($$$$$$$$$$$);
+sub download_video_url($$$$$$$$$$$) {
   my ($url, $title, $prefix, $outfile, $size_p,
       $list_p, $list_idx, $list_count,
-      $bwlimit, $progress_p, $cgi_p, $force_fmt) = @_;
+      $bwlimit, $progress_p, $force_fmt) = @_;
 
   $error_whiteboard = '';	# reset per-URL diagnostics
   $progress_ticks = 0;		# reset progress-bar counters
@@ -5214,10 +5019,6 @@ sub download_video_url($$$$$$$$$$$$) {
     s/^\s+|\s+$//gs if $_;
   }
 
-  # If the CGI downloader is invoked on a playlist, refer to the video, not
-  # the whole playlist.
-  # $url =~ s@&list=[^&]+@@gs if ($cgi_p);
-
   my ($id, $site);
   ($url, $id, $site) = canonical_url ($url);
 
@@ -5226,7 +5027,7 @@ sub download_video_url($$$$$$$$$$$$) {
   if ($url =~ m@view_play_list@s) {
     error ("--out does not work with playlists") if ($outfile);
     return download_youtube_playlist ($id, $url, $title, $prefix, $size_p,
-                                      $list_p, $bwlimit, $progress_p, $cgi_p,
+                                      $list_p, $bwlimit, $progress_p,
                                       $force_fmt);
   }
 
@@ -5364,22 +5165,11 @@ sub download_video_url($$$$$$$$$$$$) {
     if (defined ($fmts));
   my @pair = (@targets == 2 && $force_fmt ne 'all' ? @targets : ());
 
-  if ($cgi_p && @pair) {
-    # If we're producing CGI output, and we wanted and requested a muxed
-    # file, also add the non-muxed file onto the end of the list, to give
-    # the user an option of both formats.
-    my @t2 = pick_download_format ($id, $site, $url, undef, $fmts);
-    push @targets, @t2 if @t2;
-  }
-
-
   if ($size_p && @pair) {
     # With --size, we only need to examine the first pair of the mux.
     @targets = ($pair[0]) if ($pair[0]);
     @pair = ();
   }
-
-  my @cgi_args;
 
   $append_suffix_p = 1
     if (!$size_p && defined($force_fmt) && $force_fmt eq 'all');
@@ -5449,11 +5239,6 @@ sub download_video_url($$$$$$$$$$$$) {
 
       $fmt->{file} = $file;
 
-      if ($cgi_p) {
-        push @cgi_args, $fmt;
-        next;
-      }
-
       if (-f $file) {
 
         if (($force_fmt || '') eq 'mux') {
@@ -5507,14 +5292,13 @@ sub download_video_url($$$$$$$$$$$$) {
             $bytes += $size if defined($size);  # Sometimes missing!
             my $elapsed = time() - $start;
             $bps = 8 * ($elapsed ? $bytes / $elapsed : 0);
-            draw_progress ($i / $total, $bps, 0, ($progress_p eq 'cgi'));
+            draw_progress ($i / $total, $bps, 0);
           }
 
           $i++;
         }
 
-        draw_progress (1, $bps, 1, ($progress_p eq 'cgi'))
-          if ($progress_p);
+        draw_progress (1, $bps, 1) if ($progress_p);
 
       } else {
         my $force_ranges_p = 1;
@@ -5533,9 +5317,8 @@ sub download_video_url($$$$$$$$$$$$) {
         error ("$file: failed: $url");
       }
 
-      write_file_metadata_url ($file, $id, $url)
-        # The metadata tags seem to confuse ffmpeg.
-        if (!@pair && !$ENV{HTTP_HOST});
+      # The metadata tags seem to confuse ffmpeg.
+      write_file_metadata_url ($file, $id, $url) if (!@pair);
 
       if ($verbose > 0) {
 
@@ -5567,16 +5350,23 @@ sub download_video_url($$$$$$$$$$$$) {
         print STDERR "$progname:         $ss\n";
       }
 
+      #### I'm trying to work out how to identify the short placeholder videos
+      #### used when a video's "premier time" has not yet been reached.
+      ####
+      if ($verbose == 0 && $file && $file =~ m/\.mp4$/si) {
+        my $size = (stat($file))[7] || 0;
+        if ($size < (15*1024*1024)) {
+          print STDERR "$progname: ##### DEBUG: weirdly small file: $url\n\n";
+          system ("youtubedown", "--size", "-vvvv", $url);
+        }
+      }
+
       # If we're not muxing, this is the final file.
       delete $rm_f{$file} unless @pair;
     }
   }
 
-  if ($cgi_p) {
-    cgi_output ($id, $title, $url, $list_idx, $list_count, $bwlimit,
-                @cgi_args);
-
-  } elsif (@pair) {
+  if (@pair) {
     mux_downloaded_files ($id, $url, $title,
                           $fmts->{$pair[0]},
                           $fmts->{$pair[1]},
@@ -5592,10 +5382,10 @@ sub download_video_url($$$$$$$$$$$$) {
 # But retrying often works.
 # Also sometimes the underlying video segments are 404.
 #
-sub download_video_url_retry($$$$$$$$$$$$) {
+sub download_video_url_retry($$$$$$$$$$$) {
   my ($url, $title, $prefix, $outfile, $size_p,
       $list_p, $list_idx, $list_count,
-      $bwlimit, $progress_p, $cgi_p, $force_fmt) = @_;
+      $bwlimit, $progress_p, $force_fmt) = @_;
 
   ($url) = canonical_url ($url);
 
@@ -5607,7 +5397,7 @@ sub download_video_url_retry($$$$$$$$$$$$) {
       $noerror = 1;
       download_video_url ($url, $title, $prefix, $outfile, $size_p,
                           $list_p, $list_idx, $list_count,
-                          $bwlimit, $progress_p, $cgi_p, $force_fmt);
+                          $bwlimit, $progress_p, $force_fmt);
     };
     $noerror = $ono;
 
@@ -5730,10 +5520,9 @@ sub youtube_playlist_urls($$;$) {
 }
 
 
-sub download_youtube_playlist($$$$$$$$$$) {
+sub download_youtube_playlist($$$$$$$$$) {
   my ($id, $url, $title, $prefix, $size_p, $list_p,
-      $bwlimit, $progress_p, $cgi_p,
-      $force_fmt) = @_;
+      $bwlimit, $progress_p, $force_fmt) = @_;
 
   # With "--size", only get the size of the first video.
   # With "--size --size", get them all.
@@ -5755,241 +5544,12 @@ sub download_youtube_playlist($$$$$$$$$$) {
       utf8::encode ($t2) if defined($t2);
       download_video_url_retry ($u2, $t2, $prefix, undef, $size_p, $list_p,
                                 $list_idx, $list_count,
-                                $bwlimit, $progress_p,
-                                $cgi_p, $force_fmt);
+                                $bwlimit, $progress_p, $force_fmt);
       $noerror = $ono;
     };
     print STDERR "$progname: $@" if $@;
     last if ($size_p == 1);
     $list_idx++;
-  }
-}
-
-
-sub do_cgi($$) {
-  my ($muxp, $bwlimit) = @_;
-
-  $|=1;
-
-  $append_suffix_p = 1;
-
-  my $args = "";
-  if (!defined ($ENV{REQUEST_METHOD})) {
-  } elsif ($ENV{REQUEST_METHOD} eq "GET") {
-    $args = $ENV{QUERY_STRING} if (defined($ENV{QUERY_STRING}));
-  } elsif ($ENV{REQUEST_METHOD} eq "POST") {
-    local $/ = undef;  # read entire file
-    $args .= <STDIN>;
-  }
-
-  if (!$args &&
-      defined($ENV{REQUEST_URI}) &&
-      $ENV{REQUEST_URI} =~ m/^(.*?)\?(.*)$/s) {
-    $args = $2;
-    # for cmd-line debugging
-    $ENV{SCRIPT_NAME} = $1 unless defined($ENV{SCRIPT_NAME});
-#    $ENV{PATH_INFO} = $1 if (!$ENV{PATH_INFO} &&
-#                             $ENV{SCRIPT_NAME} =~ m@^.*/(.*)@s);
-  }
-
-  my ($url, $orig_url, $redir, $proxy, $ct);
-  foreach (split (/&/, $args)) {
-    my ($key, $val) = m/^([^=]+)=(.*)$/;
-    $key = url_unquote ($key);
-    $val = url_unquote ($val);
-    if    ($key eq 'url')   { $url   = $val; }
-    elsif ($key eq 'redir') { $redir = $val; }
-    elsif ($key eq 'proxy') { $proxy = $val; }
-    elsif ($key eq 'ct')    { $ct    = $val; }
-    elsif ($key eq 'src')   { $orig_url = $val; }
-    else { error ("unknown option: $key"); }
-  }
-
-  if ($redir || $proxy) {
-    error ("can't specify both url and redir")   if ($redir && $url);
-    error ("can't specify both url and proxy")   if ($proxy && $url);
-    error ("can't specify both redir and proxy") if ($proxy && $redir);
-    my $title = $ENV{PATH_INFO} || '';
-    $title =~ s@^/@@s;
-    $title = ($redir || $proxy) unless $title;
-    $title = ($ENV{PATH_INFO} || '') if ($title eq 'mux');
-    $title =~ s@^.*?/@@gs;
-    $title =~ s@[?&].*@@gs;
-    $title =~ s@\"@%22@gs;
-
-    $ct = 'video/mpeg' unless $ct;
-    my $ct2 = $1 if ($ct =~ s/\|(.*)$//s);
-    $ct  =~ s/\s*;.*$//gs;
-    $ct2 =~ s/\s*;.*$//gs if $ct2;
-
-    my $filename_arg = "filename=\"$title\"";
-    if ($title =~ m/[^\001-\276]/s) {  # Contains non-ASCII
-      # RFC 5987 bad craziness: not supported by some browsers.
-      $filename_arg .= "; filename*=utf-8''" . url_quote($title);
-    }
-
-    if ($redir) {
-      my ($audio) = ($redir =~ s@\|(.*)$@@s);
-      error ("can't redir URLs that require muxing")
-        if ($audio || $redir eq 'mux');
-
-      # Return a redirect to the underlying video URL.
-      binmode (STDOUT, ':raw');
-      print STDOUT ("Content-Type: text/html\n" .
-                    "Location: $redir\n" .
-                    "Content-Disposition: attachment; $filename_arg\n" .
-                    "\n" .
-                    "<A HREF=\"$redir\">$title</A>\n" .
-                    "\n");
-    } else {
-      # Proxy the data, so that we can feed it a non-browser user agent.
-
-      my $audio = $1 if ($proxy =~ s@\|(.*)$@@s);
-
-      if ($audio) {
-        # We need to download both files locally, then mux them, then
-        # stream that. Auuugh!
-
-        my $tmp = $ENV{TMPDIR} || "/tmp";
-        my $e1 = content_type_ext ($ct);
-        my $e2 = content_type_ext ($ct2 || $ct);
-        $progname =~ s/\..*?$//s;
-        my $video_file = sprintf("$tmp/$progname-V-%08x.$e1",rand(0xFFFFFFFF));
-        my $audio_file = sprintf("$tmp/$progname-A-%08x.$e2",rand(0xFFFFFFFF));
-        my $muxed_file = sprintf("$tmp/$progname-M-%08x.$e1",rand(0xFFFFFFFF));
-
-
-        foreach my $f ($video_file, $audio_file, $muxed_file) {
-          if (-f $f) {
-            print STDERR "$progname: rm \"$f\"\n" if ($verbose > 1);
-            unlink $f;
-          }
-        }
-
-        # So we're downloading two files and muxing them before we have any
-        # bytes we can send to the client.  That means that several minutes
-        # could go by with 0 data being written, which might make Apache or
-        # the browser time out and drop the connection.  So, before we have
-        # any real content to write, we write an "X-Heartbeat: ...." header,
-        # spitting out a new "." every few seconds.  This means the client
-        # header block doesn't actually close until we have the body (which
-        # is necessary in order to have the true Content-Length) but we have
-        # technically not fallen fully idle.  Let's hope Apache and the
-        # client fall for that trick.
-
-        my $hdr = "X-Heartbeat:";
-        print STDOUT "$hdr video ";
-        get_url ($proxy, undef, $video_file, $bwlimit, undef, 0, 'cgi');
-        print STDOUT "\n$hdr audio ";
-        get_url ($audio, undef, $audio_file, $bwlimit, undef, 0, 'cgi');
-        print STDOUT "\n$hdr muxing ";
-
-        my %v1 = ( file => $video_file );
-        my %v2 = ( file => $audio_file );
-
-        $verbose = -1;
-        mux_downloaded_files ($orig_url, $orig_url, $title,
-                              \%v1, \%v2, $muxed_file,
-                              'cgi');
-        print STDOUT "\n";  # close $hdr
-
-        foreach my $f ($video_file, $audio_file) {
-          if (-f $f) {
-            print STDERR "$progname: rm \"$f\"\n" if ($verbose > 1);
-            unlink $f;
-          }
-        }
-
-        open (my $in, '<:raw', $muxed_file) ||
-          error ("$orig_url: $muxed_file: $!");
-
-        my @st = stat($in);
-        my $size = $st[7];
-        if (-f $muxed_file) {
-          print STDERR "$progname: rm \"$muxed_file\"\n" if ($verbose > 1);
-          unlink $muxed_file;
-        }
-
-        print STDOUT ("Content-Type: $ct\n" .
-                      "Content-Length: $size\n" .
-                      "Content-Disposition: attachment; $filename_arg\n" .
-                      "\n");
-
-        binmode (STDOUT, ':raw');
-        local $/ = undef;  # read entire file
-        while (<$in>) {
-          print STDOUT $_;
-        }
-        close $in;
-
-      } elsif ($proxy eq 'mux') {
-        # We don't have the list of segmented URLs, because the URL
-        # would have been too long, but we know that we're going for
-        # the highest resolution video, and that will be one where
-        # muxing is necessary.
-
-        my $tmp = $ENV{TMPDIR} || "/tmp";
-        my $ext = content_type_ext ($ct);
-        $progname =~ s/\..*?$//s;
-        my $muxed_file = sprintf("$tmp/$progname-%08x.$ext",rand(0xFFFFFFFF));
-        
-        # See muxing comment above.
-        my $hdr = "X-Heartbeat: ";
-        print STDOUT $hdr;
-
-        error ("src=URL is required with proxy=mux") unless $orig_url;
-
-        $verbose = -1;
-        download_video_url_retry ($orig_url, undef, undef,
-                                  $muxed_file, 0, 0, 0, 0,
-                                  $bwlimit, 'cgi', 0, 'mux');
-
-        print STDOUT "\n";  # close $hdr
-
-        open (my $in, '<:raw', $muxed_file) ||
-          error ("$orig_url: $muxed_file: $!");
-
-        my @st = stat($in);
-        my $size = $st[7];
-        if (-f $muxed_file) {
-          print STDERR "$progname: rm \"$muxed_file\"\n" if ($verbose > 1);
-          unlink $muxed_file;
-        }
-
-        print STDOUT ("Content-Type: $ct\n" .
-                      "Content-Length: $size\n" .
-                      "Content-Disposition: attachment; $filename_arg\n" .
-                      "\n");
-
-        binmode (STDOUT, ':raw');
-        local $/ = undef;  # read entire file
-        while (<$in>) {
-          print STDOUT $_;
-        }
-        close $in;
-
-      } else {
-        # Otherwise we can just stream it without involving the disk.
-        print STDOUT "Content-Disposition: attachment; $filename_arg\n";
-        binmode (STDOUT, ':raw');
-        get_url ($proxy, undef, '-', $bwlimit);
-      }
-    }
-
-  } elsif ($url) {
-    error ("extraneous crap in URL: $ENV{PATH_INFO}")
-      if (defined($ENV{PATH_INFO}) && $ENV{PATH_INFO} ne "");
-
-    # On a "/playlist?list=..." URL, list every video.
-    # On a "/watch?v=...&list=...", do only this video.
-    $url =~ s/&list=[^&]+//s if ($url =~ m@youtube\.com/watch\?@s);
-
-    my $force_fmt = ($muxp ? 'mux' : undef);
-    download_video_url_retry ($url, undef, undef, undef, 0, 0, 0, 0,
-                              $bwlimit, undef, 1, $force_fmt);
-
-  } else {
-    error ("no URL specified for CGI");
   }
 }
 
@@ -6008,8 +5568,6 @@ sub main() {
 
   binmode (STDOUT, ':utf8');   # video titles in messages
   binmode (STDERR, ':utf8');
-
-  $progname =~ s/\..*?$//s;    # remove .cgi
 
   # historical suckage: the environment variable name is lower case.
   $http_proxy = ($ENV{http_proxy}  || $ENV{HTTP_PROXY} ||
@@ -6127,14 +5685,12 @@ sub main() {
     exit (0);
   }
 
-  return do_cgi($muxp, $bwlimit) if (defined ($ENV{REQUEST_URI}));
-
   usage unless ($#urls >= 0);
   foreach (@urls) {
     my ($title, $fmt, $out, $url) = @$_;
     download_video_url_retry ($url, $title, $prefix, $out, $size_p,
                               $list_p, 0, 0, 
-                              $bwlimit, $progress_p, 0, $fmt);
+                              $bwlimit, $progress_p, $fmt);
   }
 }
 
