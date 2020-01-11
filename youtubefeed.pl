@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright © 2013-2019 Jamie Zawinski <jwz@jwz.org>
+# Copyright © 2013-2020 Jamie Zawinski <jwz@jwz.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -38,7 +38,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.65 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.66 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;

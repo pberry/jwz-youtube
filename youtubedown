@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright © 2007-2019 Jamie Zawinski <jwz@jwz.org>
+# Copyright © 2007-2020 Jamie Zawinski <jwz@jwz.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -62,7 +62,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1455 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1494 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -132,6 +132,10 @@ my $errorI = ("\n" .
               "\n\tPlease report this URL to jwz\@jwz.org!" .
               "\n\tBut make sure you have the latest version first:" .
               "\n\thttps://www.jwz.org/hacks/#youtubedown" .
+              "\n" .
+              "\n\t(If this error is happening on *all* videos," .
+              "\n\tyou can assume that I am already aware of it.)" .
+              "\n" .
               "\n");
 my $error_whiteboard = '';	# for signature diagnostics
 
@@ -204,7 +208,9 @@ sub draw_progress($$$) {
 
   my $cols = 64;
   my $ticks = int($cols * $ratio);
-  my $cursep = !($verbose > 4) && (($ENV{TERM} || 'dumb') ne 'dumb');
+  my $cursep = (!($verbose > 4) &&
+                ((($ENV{TERM} || 'dumb') ne 'dumb') ||
+                 (($ENV{INSIDE_EMACS} || '') =~ m/comint/)));
 
   my $now = time();
 
@@ -2212,6 +2218,27 @@ my %ciphers = (
   'player_ias-vflu-qpOO/en_US/base' => '18211 s3 w64 w35 r',      # 11 Nov 2019
   'player_ias-vflFlp-mq/en_US/base' => '18214 w70 r w67 w34',     # 14 Nov 2019
   'player_ias-vflhctYB3/en_US/base' => '18216 w6 r s2',           # 16 Nov 2019
+  'player_ias-vfl3Ub7Lu/en_US/base' => '18218 r s2 r s3',         # 18 Nov 2019
+  'player_ias-vflss95Jx/en_US/base' => '18219 s3 r w58 s1 w18',   # 19 Nov 2019
+  'player_ias-vfl8EyRMW/en_US/base' => '18219 s3 r w58 s1 w18',   # 19 Nov 2019
+  'player_ias-vflHWPv1o/en_US/base' => '18220 w68 r s1',          # 20 Nov 2019
+  'player_ias-vflaU3CuL/en_US/base' => '18222 r s3 r w15 w33 w26 w29 w4 s2',# 22 Nov 2019
+  'player_ias-vfly7X4ko/en_US/base' => '18225 s1 w24 r w23 w32',  # 25 Nov 2019
+  'player_ias-vflGkJskG/en_US/base' => '18227 r w24 r w25 s3 r',  # 27 Nov 2019
+  'player_ias-vflVQDSr2/en_US/base' => '18229 s1 r s2 r s3 w16 w1',# 29 Nov 2019
+  'player_ias-vfl5RP2xB/en_US/base' => '18233 w28 s3 w15 w58 w54 r s1',# 03 Dec 2019
+  'player_ias-vflvcmhHb/en_US/base' => '18234 w38 s1 w37 s3 r w65 w36 r s1',# 04 Dec 2019
+  'player_ias-vfliASpvT/en_US/base' => '18235 w52 s1 w68 w44 w57 s2 r',# 05 Dec 2019
+  'player_ias-vflYr569U/en_US/base' => '18235 w52 s1 w68 w44 w57 s2 r',# 05 Dec 2019
+  'player_ias-vflhdSMEK/en_US/base' => '18236 r w44 s3',          # 06 Dec 2019
+  'player_ias-vflDT4YKf/en_US/base' => '18240 w4 s3 r s3 w47',    # 10 Dec 2019
+  'player_ias-vflZn7_Zv/en_US/base' => '18240 w4 s3 r s3 w47',    # 10 Dec 2019
+  'player_ias-vfl7Ksmll/en_US/base' => '18242 w70 s2 w19 s3',     # 12 Dec 2019
+  'player_ias-vfl22ubNH/en_US/base' => '18249 w26 s1 r s2 r s1 w45 r',# 19 Dec 2019
+  'player_ias-vflMn34bn/en_US/base' => '18268 s1 r s1 w5',        # 07 Jan 2020
+  'player_ias-vflY-95hF/en_US/base' => '18269 w58 s2 r s1 r',     # 08 Jan 2020
+  'player_ias-vflDLieI-/en_US/base' => '18269 w58 s2 r s1 r',     # 08 Jan 2020
+  'player_ias-vflJiqSE7/en_US/base' => '18272 w32 w13 s2 r',      # 11 Jan 2020
 );
 
 
@@ -2347,6 +2374,13 @@ sub guess_cipher($;$$) {
 
   # First, find the sts parameter:
   my ($sts) = ($body =~ m/\bsts:(\d+)\b/si);
+
+  if (!$sts) {  # New way, 4-Jan-2020
+    # Find "N" in this: var f=18264; a.fa("ipp_signature_cipher_killswitch")
+    ($sts) = ($body =~
+              m/$v = (\d{5,}) ; $v \("ipp_signature_cipher_killswitch"\) /sx);
+  }
+
   errorI ("$cipher_id: no sts parameter: $url") unless $sts;
 
 
@@ -2605,11 +2639,21 @@ sub youtube_parse_urlmap($$$;$) {
 
   my $cipher_printed_p = 0;
 
+  if ($urlmap =~ m/^\{"/s) {			# Ugh, sometimes it is JSON
+    $urlmap =~ s/^\{//s;
+    $urlmap =~ s/"(.*?)" : ([^,]+) [,\}]* /{	# "a":x, => a=x&
+                 "$1=" . url_quote($2) . "&";
+                }/gsexi;
+    $urlmap =~ s/&\{/,/gs;
+  }
+
   my $count = 0;
   foreach my $mapelt (split (/,/, $urlmap)) {
     # Format used to be: "N|url,N|url,N|url"
     # Now it is: "url=...&quality=hd720&fallback_host=...&type=...&itag=N"
     my ($k, $v, $e, $sig, $sig2, $sig3, $w, $h, $size);
+    my $sig_via = $mapelt;
+
     if ($mapelt =~ m/^\d+\|/s) {
       ($k, $v) = m/^(.*?)\|(.*)$/s;
     } elsif ($mapelt =~ m/^[a-z][a-z\d_]*=/s) {
@@ -2620,13 +2664,37 @@ sub youtube_parse_urlmap($$$;$) {
 
       ($k) = ($mapelt =~ m/\bitag=(\d+)/s);
       ($v) = ($mapelt =~ m/\burl=([^&]+)/s);
-      $v = url_unquote($v) if ($v);
+      $v = '' unless $v;
+
+      # In JSON, "cipher":"sp=sig&s=...&url=..."
+      if ($mapelt =~ m@\bcipher=([^&\"]+)@s) {
+        my $sig4 = url_unquote ($1);
+        $sig4 =~ s/^.*"(.*?)".*$/$1/s;
+        my ($s2)  = ($sig4 =~ m/\bs=([^&]+)/s);
+        my ($u2)  = ($sig4 =~ m/\burl=([^&]+)/s);
+        if ($u2) {
+          $sig  = undef;
+          $sig2 = $s2;
+          $v    = $u2;
+          $sig_via = $sig4;  # so that apply_signature can find sp=
+        }
+      }
+
+      $v =~ s@\\u0026@&@gs;
+      $v = url_unquote($v);
+      $v =~ s/^\"|\"$//gs;
 
       ($size)  = ($v =~ m/\bclen=([^&]+)/s);
       ($w, $h) = ($v =~ m/\bsize=(\d+)x(\d+)/s);
 
+      # JSON
+      ($size)  = ($mapelt =~ m/\bcontentLength=\"?(\d+)/s) unless $size;
+      ($w) = ($mapelt =~ m/\bwidth=\"?(\d+)/s)  unless $w;
+      ($h) = ($mapelt =~ m/\bheight=\"?(\d+)/s) unless $h;
+
       my ($q) = ($mapelt =~ m/\bquality=([^&]+)/s);
-      my ($t) = ($mapelt =~ m/\btype=([^&]+)/s);
+      my ($t) = ($mapelt =~ m/\b(?:type|mimeType)=([^&]+)/s);
+      $q = url_unquote($q) if ($q);
       $t = url_unquote($t) if ($t);
       if ($q && $t) {
         $e = "\t$q, $t";
@@ -2688,7 +2756,7 @@ sub youtube_parse_urlmap($$$;$) {
     $v = apply_signature ($id, $k, $v,
                           ($sig2 || $sig3) ? $cipher : undef,
                           url_unquote ($sig || $sig2 || $sig3 || ''),
-                          $mapelt);
+                          $sig_via);
 
     # Finally! The "ratebypass" parameter turns off rate limiting!
     # But we can't add it to a URL that signs the "ratebypass" parameter.
@@ -2858,10 +2926,13 @@ my $blocked_re = join ('|',
                         'invalid parameters',
                         'RTMPE DRM',
                         'Private video\?',
+                        'video is private',
                         'piece of shit',
                         'you are a human',
                         '\bCAPCHA required',
                         '\b429 Too Many Requests',
+                        'Premieres in \d+ (min|hour|day|week|month)',
+                        'video has not yet premiered',
                         '^[^:]+: exists: ',
                        ));
 
@@ -2911,11 +2982,15 @@ sub load_youtube_formats_html($$$) {
     (undef, $err) = ($body =~ m@<( div | h1 ) \s+
                                     (?: id | class ) = 
                                    "(?: error-box |
-                                        yt-alert-content |
                                         unavailable-message )"
-                                   [^<>]* > \s* 
-                                   ( [^<>]+? ) \s*
-                                   </ \1 > @six);
+                                   [^<>]* > \s*
+                                   ( .+? ) \s*
+                                    </ \1 > @six);
+    if ($err) {
+      $err =~ s@^.*="yt-uix-button-content"[^<>]*>([^<>]+).*@$1@si;
+      $err =~ s/<[^<>]*>//gs;
+    }
+
     $err = "Rate limited: CAPCHA required"
       if (!$err && $body =~ m/large volume of requests/);
     if ($err) {
@@ -2932,7 +3007,7 @@ sub load_youtube_formats_html($$$) {
       $err =~ s/\.(: )/$1/gs;
       $err =~ s/\.$//gs;
 
-      $err = "$err ($title)" if ($title);
+      #$err = "$err ($title)" if ($title);
 
       $oerror = $err;
       $http = 'HTTP/1.0 404';
@@ -2968,18 +3043,34 @@ sub load_youtube_formats_html($$$) {
                    'url_encoded_fmt_stream_map', # Aug 2011
                    'adaptive_fmts',
                    'dashmpd',
-                   'player_response') {
+                   'player_response',
+    ) {
     my ($v) = ($args =~ m@"$key": *"(.*?[^\\])"@s);
     $v = '' if (!defined($v) || $v eq '",');
     $v =~ s@\\@@gs;
     next unless $v;
     print STDERR "$progname: $id HTML: found $key\n" if ($verbose > 2);
+
+    # source%3Dyt_premiere_broadcast%26 or /source/yt_premiere_broadcast/
+    if ($v =~ m/yt_premiere_broadcast/) {
+      $err = "video has not yet premiered";
+      undef %$fmts;  # The fmts point to a countdown video.
+      last;
+    }
+
     if ($key eq 'dashmpd' || $key eq 'hlsvp') {
       $count += youtube_parse_dashmpd ("$id HTML", $v, $cipher, $fmts);
     } elsif ($key eq 'player_response') {
-      ($v) = ($v =~ m@"dashManifestUrl": *"(.*?[^\\])"@s);
+      my $ov = $v;
+      ($v) = ($ov =~ m@"dashManifestUrl": *"(.*?[^\\])"@s);
       # This manifest sometimes works when the one in get_video_info doesn't.
       $count += youtube_parse_dashmpd ("$id HTML", $v, $cipher, $fmts) if $v;
+
+      # Nov 2019: Saw this on an old fmt 133 video, and it was the only
+      # list of formats available in the HTML.
+      ($v) = ($ov =~ m@"adaptiveFormats": *\[(.*?)\]@s);
+      $count += youtube_parse_urlmap ("$id HTML", $v, $cipher, $fmts) if $v;
+
     } else {
       $count += youtube_parse_urlmap ("$id HTML", $v, $cipher, $fmts);
     }
@@ -3042,7 +3133,7 @@ sub load_youtube_formats_video_info($$$) {
   #
   my @extra_parameters = ('', '&el=embedded', '&el=info', '&el=detailpage');
 
-  my ($title, $body, $embed_p, $rental, $live_p);
+  my ($title, $body, $embed_p, $rental, $live_p, $premiere_p);
 
   my $err = undef;
   my $done = 0;
@@ -3064,11 +3155,15 @@ sub load_youtube_formats_video_info($$$) {
       $err = $err2 unless $err;
 
       ($title)    = ($body =~ m@&title=([^&]+)@si) unless $title;
-      ($embed_p)  = ($body =~ m@&allow_embed=([^&]+)@si);
       ($rental)   = ($body =~ m@&ypc_vid=([^&]+)@si);
       ($live_p)   = ($body =~ m@&live_playback=([^&]+)@si);
+
+      $embed_p = $1 if ($body =~ m@&allow_embed=([^&]+)@si);
       $embed_p = 0 if (!defined($embed_p) &&
-                       $body =~ m/on[\s+]other[\s+]websites/s);
+                       $body =~ m/on[+\s+]other[+\s+]websites/s);
+
+      # Sigh, %2526source%253Dyt_premiere_broadcast%2526
+      $premiere_p = 1 if ($body =~ m@yt_premiere_broadcast@s);
 
       $err = "can't download livestream videos" if ($live_p);
       # "player_response" contains JSON:
@@ -3082,10 +3177,13 @@ sub load_youtube_formats_video_info($$$) {
                        'fmt_stream_map', # VEVO
                        'url_encoded_fmt_stream_map', # Aug 2011
                        'adaptive_fmts',
-                       'dashmpd') {
+                       'dashmpd',
+                       'player_response',
+        ) {
         my ($v) = ($body =~ m@[?&]$key=([^&?]+)@si);
         next unless defined ($v);
         $v = url_unquote ($v);
+        $v =~ s@\\u0026@&@gs;
         $v =~ s@\\@@gs;
 
         print STDERR "$progname: $id VI: found $key" .
@@ -3095,17 +3193,36 @@ sub load_youtube_formats_video_info($$$) {
                      "\n"
           if ($verbose > 1);
         if ($key eq 'dashmpd' || $key eq 'hlsvp') {
-          $count += youtube_parse_dashmpd ("$id VI", $v, $cipher, $fmts);
+          $count += youtube_parse_dashmpd ("$id VI-1", $v, $cipher, $fmts);
+        } elsif ($key eq 'player_response') {
+          ($v) = ($v =~ m@"adaptiveFormats":\[(.*?)\]@s);
+          $count += youtube_parse_urlmap ("$id VI-2", $v, $cipher, $fmts)
+            if ($v);
         } else {
-          $count += youtube_parse_urlmap ("$id VI", $v, $cipher, $fmts);
+          $count += youtube_parse_urlmap ("$id VI-3", $v, $cipher, $fmts);
         }
       }
 
       $done = ($count >= 3 && $title);
 
+      # Don't let "Invalid parameters" override "This video is private".
       $err = url_unquote ($1)
-        if ($body =~ m/\bstatus=fail\b/si &&
+        if ((!$err || $err =~ m/invalid param/si) &&
+            $body =~ m/\bstatus=fail\b/si &&
             $body =~ m/\breason=([^?&]+)/si);
+
+      # This gets us "This video is private" instead of "Invalid parameters".
+      if ($body =~ m/player_response=([^&]+)/s) {
+        my $s = url_unquote ($1);
+        $s =~ s@\\u0026@&@gs;
+        $s =~ s@\\u003c@<@gs;
+        $s =~ s@\\u003e@>@gs;
+        $s =~ s@\\n@ @gs;
+        if ($s =~ m/"reason":"(.*?)"[,\}]/si) {
+          $err = $1;
+          $err =~ s/<[^<>]*>//gs;
+        }
+      }
     }
     last if $done;
     sleep (1);
@@ -3119,6 +3236,11 @@ sub load_youtube_formats_video_info($$$) {
 
   $err = "video is not embeddable"
     if ($err && (defined($embed_p) && !$embed_p));
+
+  if ($premiere_p) {
+    $err = "video has not yet premiered";
+    undef %$fmts if ($premiere_p);  # The fmts point to a countdown video.
+  }
 
   $body = '' unless $body;
   ($title) = ($body =~ m@&title=([^&]+)@si) unless $title;
@@ -3164,7 +3286,6 @@ sub load_youtube_formats($$$) {
   my ($id, $url, $size_p) = @_;
 
   my %fmts;
-  my ($err, $err2);
 
   # Scrape the HTML page before loading get_video_info because the 
   # DASH URL in the HTML page is more likely to work than the one
@@ -3177,12 +3298,17 @@ sub load_youtube_formats($$$) {
   #              'hl=en',
   #              'disable_polymer=true');
 
-  $err2 = load_youtube_formats_html ($id, $url, \%fmts);
-  $err = $err2 unless $err;
+  my $err1 = load_youtube_formats_html ($id, $url, \%fmts);
+  my $err2 = load_youtube_formats_video_info ($id, $url, \%fmts);
 
-  $err2 = load_youtube_formats_video_info ($id, $url, \%fmts);
-  $err = $err2 unless $err;
-  # $err = $err2 if $err2;
+  # Which error sucks less? Hard to say.
+  # my $err = $err2 || $err;
+  my $err = $err2 || $err1;
+
+  my $both = ($err1 || '') . ' ' . ($err2 || '');
+  $err = 'age-restricted video is not embeddable'
+    if ($both =~ m/content warning/si &&
+        $both =~ m/not embeddable/si);
 
   # It's rare, but there can be only one format available.
   # Keys: 18, cipher, title.
@@ -3285,7 +3411,7 @@ sub load_vimeo_formats($$$) {
   my ($files2) = ($body =~ m@   "progressive" : \s* \[ ( .+? \] ) \} @six);
   my $files    = ($files0 || '') . ($files1 || '') . ($files2 || '');
 
-  my ($thumb)  = ($body =~ m/"thumbs":{"\d+":"(.*?)"/s);
+  my ($thumb)  = ($body =~ m/"thumbs":\{"\d+":"(.*?)"/s);
 
   # Sometimes we get empty-ish data for "Private Video", but HTTP 200.
   $err = "No video info (Private video?)"
@@ -3317,14 +3443,20 @@ sub load_vimeo_formats($$$) {
     errorI ("$id: no title") unless $title;
     $fmts{title} = $title;
     my $i = 0;
+    my %seen;
     foreach my $f (split (/\},?\s*/, $files)) {
       next unless (length($f) > 50);
-      my ($fmt)  = ($f =~ m@^ \" (.+?) \": @six);
-         ($fmt)  = ($f =~ m@^ \{ "profile": (\d+) @six) unless $fmt;
+    # my ($fmt)  = ($f =~ m@^ \" (.+?) \": @six);
+    #    ($fmt)  = ($f =~ m@^ \{ "profile": (\d+) @six) unless $fmt;
+      my ($fmt)  = ($f =~ m@^ \{ "profile": (\d+) @six);
+      next unless $fmt;
+      next if ($seen{$fmt});
       my ($url2) = ($f =~ m@ "url"    : \s* " (.*?) " @six);
       my ($w)    = ($f =~ m@ "width"  : \s*   (\d+)   @six);
       my ($h)    = ($f =~ m@ "height" : \s*   (\d+)   @six);
-      errorI ("$id: unparsable video formats")
+
+      next unless $url2;
+      errorI ("$id: unparsable vimeo video formats: $f")
         unless ($fmt && $url2 && $w && $h);
       print STDERR "$progname: $fmt: ${w}x$h: $url2\n"
         if ($verbose > 2);
@@ -3335,6 +3467,7 @@ sub load_vimeo_formats($$$) {
                 $ext =~ m/^(mov)$/s            ? 'video/quicktime' :
                 'video/mpeg');
 
+      $seen{$fmt} = 1;
       my %v = ( fmt  => $i,
                 url  => $url2,
                 content_type => $ct,
@@ -5196,14 +5329,23 @@ sub download_video_url($$$$$$$$$$$) {
 
     if ($size_p) {
       if (! (($w && $h) || $abr)) {
-        my ($w2, $h2, $s2, $a2) =
-          video_url_size ($id, $url2, $ct, $bwlimit,
-                          (defined($force_fmt) && $force_fmt eq 'all'
-                           ? 1 : 0));
-        $w    = $w2 if $w2;
-        $h    = $h2 if $h2;
-        $size = $s2 if $s2;
-        $abr  = $a2 if $a2;
+
+        # On a non-playlist, --size --size  means guess the size from the
+        # format rather than downloading the first part of the video to
+        # get the exact resolution. 
+        # #### Actually we can't guess that because we don't have access
+        # to $known_formats here. Oh well.
+        #
+        if ($size_p == 1) {
+          my ($w2, $h2, $s2, $a2) =
+            video_url_size ($id, $url2, $ct, $bwlimit,
+                            (defined($force_fmt) && $force_fmt eq 'all'
+                             ? 1 : 0));
+          $w    = $w2 if $w2;
+          $h    = $h2 if $h2;
+          $size = $s2 if $s2;
+          $abr  = $a2 if $a2;
+        }
       }
 
       my $ii = $id . (@targets == 1 ? '' : ":$target");
@@ -5352,11 +5494,16 @@ sub download_video_url($$$$$$$$$$$) {
 
       #### I'm trying to work out how to identify the short placeholder videos
       #### used when a video's "premier time" has not yet been reached.
+      #### The placeholder video is a countdown that is sometimes 36MB,
+      #### sometimes 501KB ??
       ####
       if ($verbose == 0 && $file && $file =~ m/\.mp4$/si) {
         my $size = (stat($file))[7] || 0;
-        if ($size < (15*1024*1024)) {
-          print STDERR "$progname: ##### DEBUG: weirdly small file: $url\n\n";
+        if (($size < (40*1024*1024)) ||
+            $title =~ m/poppy/si) {
+          print STDERR "$progname: ##### DEBUG: weirdly small file: " . 
+            int($size/(1024*1024)) . "M;\n" .
+            "$url\n\"$title\"\n\n";
           system ("youtubedown", "--size", "-vvvv", $url);
         }
       }
@@ -5406,6 +5553,7 @@ sub download_video_url_retry($$$$$$$$$$$) {
     last if ($@ =~ m/$blocked_re/sio);		# These errors don't go away.
 
     print STDERR "$progname: failed, retrying $url\n" if ($verbose == 2);
+    last if ($verbose > 2);
     print STDERR "$progname: RETRYING $url\n\n$@\n\n" if ($verbose > 2);
     $error_whiteboard .= "retrying $url\n";
     rmf();
