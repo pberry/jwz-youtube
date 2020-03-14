@@ -38,7 +38,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.66 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.67 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -53,6 +53,9 @@ $youtube_api_user = 'yesthatjwz' if ($youtube_api_user eq 'jwz'); # blargh
 my $max_urls = 100;	# Don't download more than N from a feed at once.
 my $max_days = 16;	# Ignore any RSS entry more than N days old.
 my $max_hist = 30000;	# Remember only this many total downloaded URLs.
+
+
+$SIG{PIPE} = 'IGNORE';
 
 
 # Convert any HTML entities to Unicode characters.

@@ -62,7 +62,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1494 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1519 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -133,8 +133,8 @@ my $errorI = ("\n" .
               "\n\tBut make sure you have the latest version first:" .
               "\n\thttps://www.jwz.org/hacks/#youtubedown" .
               "\n" .
-              "\n\t(If this error is happening on *all* videos," .
-              "\n\tyou can assume that I am already aware of it.)" .
+              "\n\tIf this error is happening on *all* videos," .
+              "\n\tyou can assume that I am already aware of it." .
               "\n" .
               "\n");
 my $error_whiteboard = '';	# for signature diagnostics
@@ -253,7 +253,11 @@ sub sysread_timeout($$$$) {
   my $read = undef;
   my $err = "$progname: $timeout seconds with no data\n";
   eval {
-    local $SIG{ALRM} = sub { $timeout_p = 1; print STDERR $err; die ($err) };
+    local $SIG{ALRM} = sub {
+      $timeout_p = 1;
+      print STDERR $err if ($verbose);
+      die ($err)
+    };
     alarm ($timeout);
     $read = sysread ($S, $$buf, $bufsiz);
     alarm (0);
@@ -2239,6 +2243,25 @@ my %ciphers = (
   'player_ias-vflY-95hF/en_US/base' => '18269 w58 s2 r s1 r',     # 08 Jan 2020
   'player_ias-vflDLieI-/en_US/base' => '18269 w58 s2 r s1 r',     # 08 Jan 2020
   'player_ias-vflJiqSE7/en_US/base' => '18272 w32 w13 s2 r',      # 11 Jan 2020
+  'player_ias-vflO3yVXL/en_US/base' => '18281 w42 w65 s1 r',      # 20 Jan 2020
+  'player_ias-vflwruZYD/en_US/base' => '18282 s2 r w36',          # 21 Jan 2020
+  'player_ias-vfl7lL1_p/en_US/base' => '18284 w8 r s2 r s1 r w59 s2',# 23 Jan 2020
+  'player_ias-vfl1GpCbm/en_US/base' => '18290 w46 r s2 r',        # 29 Jan 2020
+  'player_ias-vflbwmoEe/en_US/base' => '18295 r w51 r s2 w39 r w6 w58',# 03 Feb 2020
+  'player_ias-vflZgL1a2/en_US/base' => '18298 s3 r s2 r w67 w11', # 06 Feb 2020
+  'player_ias-vflrgVy3r/en_US/base' => '18302 r w53 w5',          # 10 Feb 2020
+  'player_ias-vfla5PwTn/en_US/base' => '18302 r w53 w5',          # 10 Feb 2020
+  'player_ias-vfl5eNx6Z/en_US/base' => '18304 s2 r w9 w53 r w52 w68 r',# 12 Feb 2020
+  'player_ias-vflT0MlXN/en_US/base' => '18305 w8 r w57 w44 s1 w53 r',# 13 Feb 2020
+  'player_ias-vflp5fPn0/en_US/base' => '18305 w8 r w57 w44 s1 w53 r',# 13 Feb 2020
+  'player_ias-vfl3Rvzpw/en_US/base' => '18311 w26 r w18 s1 r s2 r w37 s1',# 19 Feb 2020
+  'player_ias-vfl5Kte8U/en_US/base' => '18317 w30 w63 w15 s3 r w50 s3 r w58',# 25 Feb 2020
+  'player_ias-vflMJC6WU/en_US/base' => '18323 r s3 w58 r s3 r w16 r w20',# 02 Mar 2020
+  'player_ias-vfl1Ng2HU/en_US/base' => '18324 w34 s1 w69 s3 r s2 w53',# 03 Mar 2020
+  'player_ias-vfle4a9aa/en_US/base' => '18324 w34 s1 w69 s3 r s2 w53',# 03 Mar 2020
+  'player_ias-vfl5C38RC/en_US/base' => '18325 w50 s3 w33 r s2 w6 r w16 r',# 04 Mar 2020
+  'player_ias-vflQm4drh/en_US/base' => '18330 s1 w21 r w34 w18 w63',# 09 Mar 2020
+  'player_ias-vflQJ_oH3/en_US/base' => '18332 w61 r s2',          # 11 Mar 2020
 );
 
 
@@ -2415,8 +2438,20 @@ sub guess_cipher($;$$) {
     unless $fn;
 
   # If that didn't work:
+  # Find "B" in this: A = B(C(A)), D(E,F(A))
+  # Where "C" is "decodeURIComponent" and "F" is encodeURIComponent
+
+  (undef, $fn) = ($body =~ m/ ( $v ) = ( $v ) \(   # A = B (
+                              $v \( \1 \) \) ,     #  C ( A )),
+                              $v \( $v ,           # D ( E,
+                              $v \( $v \) \)       #  F ( A ))
+                              /sx)
+    unless $fn;
+
+  # If that didn't work:
   # Find "C" in this: A.set (B.sp, D (C (E (B.s))))
   # where "D" is "encodeURIComponent" and "E" is "decodeURIComponent"
+  # (Note, this rule is older than the above)
 
   ($fn) = ($body =~ m/ $v2 \. set \s* \( \s*    # A.set (
                        $v2 \s* , \s*            #   B.sp,
@@ -2933,6 +2968,7 @@ my $blocked_re = join ('|',
                         '\b429 Too Many Requests',
                         'Premieres in \d+ (min|hour|day|week|month)',
                         'video has not yet premiered',
+                        'live event will begin in',
                         '^[^:]+: exists: ',
                        ));
 
@@ -4001,6 +4037,10 @@ sub pick_download_format($$$$$) {
    401 => { v => 'av1',  w => 3840, h => 2160, a => undef               },
    402 => { v => 'av1',  w => 3840, h => 2160, a => undef               },
    403 => { v => 'av1',  w => 5888, h => 2160, a => undef               },
+   597 => { v => 'mp4',  w =>  256, h =>  144, a => undef               },
+   598 => { v => 'vp9',  w =>  256, h =>  144, a => undef               },
+   599 => { v => undef,                        a => 'aac',  abr =>  30  },
+   600 => { v => undef,                        a => 'opus', abr =>  35  },
   );
   #
   # The table on https://en.wikipedia.org/wiki/YouTube#Quality_and_formats
@@ -4384,6 +4424,8 @@ sub pick_download_format($$$$$) {
       if ($verbose > 1);
 
     return ($mfmt);
+  } elsif ($force_fmt) {
+    return $force_fmt;
   } else {
     error ("$id: No pre-muxed formats; \"ffmpeg\" required for download");
   }
@@ -4459,6 +4501,7 @@ sub munge_title($) {
 
   $title =~ s/^Youtube -+ //si;
   $title =~ s/ -+ Youtube$//si;
+  $title =~ s/^Youtube$//si;
   $title =~ s/ on Vimeo\s*$//si;
   $title =~ s/Broadcast Yourself\.?$//si;
 
@@ -5492,21 +5535,21 @@ sub download_video_url($$$$$$$$$$$) {
         print STDERR "$progname:         $ss\n";
       }
 
-      #### I'm trying to work out how to identify the short placeholder videos
-      #### used when a video's "premier time" has not yet been reached.
-      #### The placeholder video is a countdown that is sometimes 36MB,
-      #### sometimes 501KB ??
-      ####
-      if ($verbose == 0 && $file && $file =~ m/\.mp4$/si) {
-        my $size = (stat($file))[7] || 0;
-        if (($size < (40*1024*1024)) ||
-            $title =~ m/poppy/si) {
-          print STDERR "$progname: ##### DEBUG: weirdly small file: " . 
-            int($size/(1024*1024)) . "M;\n" .
-            "$url\n\"$title\"\n\n";
-          system ("youtubedown", "--size", "-vvvv", $url);
-        }
-      }
+#      #### I'm trying to work out how to identify the short placeholder videos
+#      #### used when a video's "premier time" has not yet been reached.
+#      #### The placeholder video is a countdown that is sometimes 36MB,
+#      #### sometimes 501KB ??
+#      ####
+#      if ($verbose == 0 && $file && $file =~ m/\.mp4$/si) {
+#        my $size = (stat($file))[7] || 0;
+#        if (($size < (40*1024*1024)) ||
+#            $title =~ m/poppy/si) {
+#          print STDERR "$progname: ##### DEBUG: weirdly small file: " . 
+#            int($size/(1024*1024)) . "M;\n" .
+#            "$url\n\"$title\"\n\n";
+#          system ("youtubedown", "--size", "-vvvv", $url);
+#        }
+#      }
 
       # If we're not muxing, this is the final file.
       delete $rm_f{$file} unless @pair;
