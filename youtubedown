@@ -62,7 +62,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1548 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1553 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -2280,6 +2280,9 @@ my %ciphers = (
   'f676c671/player_ias.vflset/en_US/base' => '18368 s2 w4 w46 s2 w34 w59 r',# 16 Apr 2020
   'bfb2a3b4/player_ias.vflset/en_US/base' => '18372 s3 w21 r s3 r w36',# 20 Apr 2020
   '45e4d51d/player_ias.vflset/en_US/base' => '18375 w17 w16 r w25 r w50 w35',# 23 Apr 2020
+  '0374edcb/player_ias.vflset/en_US/base' => '18379 w8 w43 w10 w34',# 27 Apr 2020
+  '64dddad9/player_ias.vflset/en_US/base' => '18382 r w69 r w40', # 30 Apr 2020
+  '52b1e972/player_ias.vflset/en_US/base' => '18386 w25 w47 r s1 w47',# 04 May 2020
 );
 
 
@@ -2916,6 +2919,17 @@ sub youtube_parse_dashmpd($$$$) {
   # Nuke the subtitles: the Representations inside them aren't useful.
   $body2 =~ s@<AdaptationSet mimeType=[\"\']text/.*?</AdaptationSet>@@gs;
 
+  my ($mpd) = ($body2 =~ m@<MPD\b([^<>]*)>@si);
+  error ("no MPD in DASH $url") unless $mpd;
+  if ($mpd =~ m@\btype=[\"\']dynamic[\"\']@si) {
+    # default: type="static"
+    # The stream is live, and there will be some arbitrary (possibly large)
+    # number of segments, but that's not the whole thing. Punt.
+    print STDERR "$progname: DASH is a live stream: $url\n"
+      if ($verbose > 2);
+    return 0;
+  }
+
   my @reps = split(/<Representation\b/si, $body2);
   shift @reps;
   foreach my $rep (@reps) {
@@ -3133,7 +3147,8 @@ sub load_youtube_formats_html($$$) {
 
     if ($v =~ m@&live_playback=([^&]+)@si ||
         $v =~ m@&live=(1)@si ||
-        $v =~ m@&source=(yt_live_broadcast)@si) {
+        $v =~ m@&source=(yt_live_broadcast)@si ||
+        $v =~ m@"status":"LIVE_STREAM_OFFLINE"@si) {
       $err = "can't download live videos";
       # The fmts point to an M3U8 that is currently of unbounded length.
       undef %$fmts;
@@ -3141,12 +3156,19 @@ sub load_youtube_formats_html($$$) {
     }
 
     if ($key eq 'dashmpd' || $key eq 'hlsvp') {
-      $count += youtube_parse_dashmpd ("$id HTML", $v, $cipher, $fmts);
+      my $n = youtube_parse_dashmpd ("$id HTML", $v, $cipher, $fmts);
+      $count += $n;
+      $err = "can't download live videos" if ($n == 0 && !$err);
+
     } elsif ($key eq 'player_response') {
       my $ov = $v;
       ($v) = ($ov =~ m@"dashManifestUrl": *"(.*?[^\\])"@s);
       # This manifest sometimes works when the one in get_video_info doesn't.
-      $count += youtube_parse_dashmpd ("$id HTML", $v, $cipher, $fmts) if $v;
+      if ($v) {
+        my $n = youtube_parse_dashmpd ("$id HTML", $v, $cipher, $fmts);
+        $count += $n;
+        $err = "can't download live videos" if ($n == 0 && !$err);
+      }
 
       # Nov 2019: Saw this on an old fmt 133 video, and it was the only
       # list of formats available in the HTML.
@@ -3248,11 +3270,15 @@ sub load_youtube_formats_video_info($$$) {
       $body2 =~ s/\\u0026/&/gs;
       $body2 =~ s/%3D/=/gs;
 
+      my ($prep) = ($body2 =~ m@&player_response=([^&]+)@si);
+      $prep = url_unquote ($prep || '');
+
       ($title)    = ($body2 =~ m@&title=([^&]+)@si) unless $title;
       ($rental)   = ($body2 =~ m@&ypc_vid=([^&]+)@si);
       ($live_p)   = ($body2 =~ m@&live_playback=([^&]+)@si ||
                      $body2 =~ m@&live=(1)@si ||
-                     $body2 =~ m@&source=(yt_live_broadcast)@si);
+                     $body2 =~ m@&source=(yt_live_broadcast)@si ||
+                     $prep =~ m@"is_viewed_live","value":"True"@si);
 
       $embed_p = $1 if ($body =~ m@&allow_embed=([^&]+)@si);
       $embed_p = 0 if (!defined($embed_p) &&
@@ -3289,7 +3315,10 @@ sub load_youtube_formats_video_info($$$) {
                      "\n"
           if ($verbose > 1);
         if ($key eq 'dashmpd' || $key eq 'hlsvp') {
-          $count += youtube_parse_dashmpd ("$id VI-1", $v, $cipher, $fmts);
+          my $n = youtube_parse_dashmpd ("$id VI-1", $v, $cipher, $fmts);
+          $count += $n;
+          $err = "can't download live videos" if ($n == 0 && !$err);
+
         } elsif ($key eq 'player_response') {
           ($v) = ($v =~ m@"adaptiveFormats":\[(.*?)\]@s);
           $count += youtube_parse_urlmap ("$id VI-2", $v, $cipher, $fmts)
