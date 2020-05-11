@@ -62,7 +62,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1553 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1555 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -76,6 +76,7 @@ my $webm_transcode_p = 0;
 
 
 my $http_proxy = undef;
+my $ffmpeg = 'ffmpeg';
 
 $ENV{PATH} = "/opt/local/bin:$ENV{PATH}";   # for macports ffmpeg
 
@@ -879,7 +880,7 @@ sub video_file_size($) {
 
   my $size = (stat($file))[7];
 
-  my @cmd = ("ffmpeg",
+  my @cmd = ($ffmpeg,
              "-i", $file,
              "-vframes", "0",
              "-f", "null",
@@ -928,7 +929,8 @@ sub video_file_size($) {
 
 sub which($) {
   my ($cmd) = @_;
- foreach my $dir (split (/:/, $ENV{PATH})) {
+  return (-x $cmd) if ($cmd =~ m@^/@s);
+  foreach my $dir (split (/:/, $ENV{PATH})) {
     my $cmd2 = "$dir/$cmd";
     return $cmd2 if (-x "$cmd2");
   }
@@ -2283,6 +2285,7 @@ my %ciphers = (
   '0374edcb/player_ias.vflset/en_US/base' => '18379 w8 w43 w10 w34',# 27 Apr 2020
   '64dddad9/player_ias.vflset/en_US/base' => '18382 r w69 r w40', # 30 Apr 2020
   '52b1e972/player_ias.vflset/en_US/base' => '18386 w25 w47 r s1 w47',# 04 May 2020
+  '0acb4375/player_ias.vflset/en_US/base' => '18389 r s1 w23 s3 w51',# 07 May 2020
 );
 
 
@@ -3008,6 +3011,7 @@ my $blocked_re = join ('|',
                         'video has not yet premiered',
                         'live event will begin in',
                         '^[^:]+: exists: ',
+                        'no pre-muxed format',
                        ));
 
 
@@ -4462,9 +4466,12 @@ sub pick_download_format($$$$$) {
     # But maybe we can't because there's no ffmpeg -- if so, print
     # a warning, then fall back to a lower resolution stream, if possible.
     #
-    if ($vfmt && $afmt && !which ("ffmpeg")) {
-      if (!$ffmpeg_warned_p) {
-        print STDERR "$progname: WARNING: $id: \"ffmpeg\" not installed.\n";
+    if ($vfmt && $afmt && !which ($ffmpeg)) {
+      if (!$mfmt) {
+        error ("$id: \"$ffmpeg\" is not installed, and this video has" .
+               " no pre-muxed format.");
+      } elsif (!$ffmpeg_warned_p) {
+        print STDERR "$progname: WARNING: $id: \"$ffmpeg\" not installed.\n";
         print STDERR "$progname: $id: downloading lower resolution.\n"
           if ($mfmt);
         $ffmpeg_warned_p = 1;
@@ -4536,7 +4543,7 @@ sub pick_download_format($$$$$) {
   } elsif ($force_fmt) {
     return $force_fmt;
   } else {
-    error ("$id: No pre-muxed formats; \"ffmpeg\" required for download");
+    error ("$id: No pre-muxed formats; \"$ffmpeg\" required for download");
   }
 }
 
@@ -5084,7 +5091,7 @@ sub mux_downloaded_files($$$$$$$) {
 
   error ("$video_file does not exist") unless (-f $video_file);
   error ("$audio_file does not exist") unless (-f $audio_file);
-  my @cmd = ('ffmpeg',
+  my @cmd = ($ffmpeg,
              # "-hide_banner", # not present in 0.6.5
              # "-loglevel", "panic",
 
