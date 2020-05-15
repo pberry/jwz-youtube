@@ -62,7 +62,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1555 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1558 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -2286,6 +2286,9 @@ my %ciphers = (
   '64dddad9/player_ias.vflset/en_US/base' => '18382 r w69 r w40', # 30 Apr 2020
   '52b1e972/player_ias.vflset/en_US/base' => '18386 w25 w47 r s1 w47',# 04 May 2020
   '0acb4375/player_ias.vflset/en_US/base' => '18389 r s1 w23 s3 w51',# 07 May 2020
+  '376e3c34/player_ias.vflset/en_US/base' => '18394 r s3 w26',    # 12 May 2020
+  '70f6ca87/player_ias.vflset/en_US/base' => '18395 w24 w13 w22 w23 s1 w44 r w15',# 13 May 2020
+  'c31ba6fc/player_ias.vflset/en_US/base' => '18396 s3 w35 r w7', # 14 May 2020
 );
 
 
