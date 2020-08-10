@@ -62,7 +62,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1558 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1584 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -315,6 +315,38 @@ sub get_url_1($;$$$$$$$) {
 
   if ($S) {
     print STDERR "$progname: reusing connection: $host\n" if ($verbose > 2);
+
+  } elsif (!$http_proxy && $proto eq 'https:') {
+
+    # If we're not using a proxy, do a direct SSL connection.
+    #
+    # There *should* be no difference between:
+    #      IO::Socket::SSL->new (..)
+    # and
+    #      IO::Socket::INET->new (...)
+    #      IO::Socket::SSL->start_SSL (...)
+    # but, there is.
+    #
+    # As of Jun 2020, the former works but the latter results in Youtube
+    # responding with "429 Too Many Requests".  So that means that there
+    # is some difference in how those two methods set up the connection,
+    # and that difference is being detected by Youtube and causing it to
+    # limit our connections more highly.  WTF, and WTF.
+    #
+    $S = IO::Socket::SSL->new (PeerAddr => $host,
+                               PeerPort => $port,
+                               Proto    => 'tcp',
+                               # Ignore certificate errors
+                               verify_hostname => 0,
+                               SSL_verify_mode => 0,
+                               SSL_verifycn_scheme => 'none',
+                               # set hostname for SNI
+                               SSL_hostname => $ohost,
+                              )
+      || error ("socket: SSL: $!");
+
+    $S->autoflush(1);
+
   } else {
 
     # If we were just using LWP::UserAgent, we wouldn't have to do all of this
@@ -2289,6 +2321,26 @@ my %ciphers = (
   '376e3c34/player_ias.vflset/en_US/base' => '18394 r s3 w26',    # 12 May 2020
   '70f6ca87/player_ias.vflset/en_US/base' => '18395 w24 w13 w22 w23 s1 w44 r w15',# 13 May 2020
   'c31ba6fc/player_ias.vflset/en_US/base' => '18396 s3 w35 r w7', # 14 May 2020
+  'e3cd195e/player_ias.vflset/en_US/base' => '18400 r w5 w20 r s2 w52 r w66 r',# 18 May 2020
+  '85548937/player_ias.vflset/en_US/base' => '18403 s2 r s3 w14 w68 r w49 w30 w69',# 21 May 2020
+  '4583e272/player_ias.vflset/en_US/base' => '18407 w27 s1 r s2 r w43',# 25 May 2020
+  'de455b1a/player_ias.vflset/en_US/base' => '18410 w11 w70 w8 w40',# 28 May 2020
+  'c31b936c/player_ias.vflset/en_US/base' => '18414 w23 w59 s3 w33 w49 s3 r',# 01 Jun 2020
+  '39dd62a0/player_ias.vflset/en_US/base' => '18417 w11 w29 s3 w69 r s2 r',# 05 Jun 2020
+  '16a691a1/player_ias.vflset/en_US/base' => '18421 r s3 w1 w67 s2 w8',# 08 Jun 2020
+  '0c5285fd/player_ias.vflset/en_US/base' => '18428 s1 r w18 w59',# 15 Jun 2020
+  '1d33781a/player_ias.vflset/en_US/base' => '18432 r s1 r w28',  # 19 Jun 2020
+  '5cc7c83f/player_ias.vflset/en_US/base' => '18435 s1 w29 r s3 w41 s2 w27 r',# 22 Jun 2020
+  '68f00b39/player_ias.vflset/en_US/base' => '18438 r w15 s1 r w11 s2',# 25 Jun 2020
+  '02c092a5/player_ias.vflset/en_US/base' => '18442 s2 r s1 r w37 s3',# 29 Jun 2020
+  '54668ca9/player_ias.vflset/en_US/base' => '18444 r w43 r s3 r',# 01 Jul 2020
+  '3662280c/player_ias.vflset/en_US/base' => '18449 s2 r w70',    # 06 Jul 2020
+  '5253ac4d/player_ias.vflset/en_US/base' => '18456 r s3 r w70',  # 13 Jul 2020
+  '8786a07b/player_ias.vflset/en_US/base' => '18463 r s2 r w29 r s1 r s3',# 20 Jul 2020
+  '0bb3b162/player_ias.vflset/en_US/base' => '18466 w39 r w20',   # 23 Jul 2020
+  'c718385a/player_ias.vflset/en_US/base' => '18473 w23 r w63 r s1 r',# 30 Jul 2020
+  'e49bfb00/player_ias.vflset/en_US/base' => '18477 w4 r w15 s3 w24 w4 r w24',# 03 Aug 2020
+  'c0a91787/player_ias.vflset/en_US/base' => '18480 w14 w61 s2 w28 w27 s3 w1 w20',# 06 Aug 2020
 );
 
 
@@ -2735,8 +2787,8 @@ sub youtube_parse_urlmap($$$;$) {
       $v = '' unless $v;
 
       # In JSON, "cipher":"sp=sig&s=...&url=..."
-      if ($mapelt =~ m@\bcipher=([^&\"]+)@s) {
-        my $sig4 = url_unquote ($1);
+      if ($mapelt =~ m@\b(cipher|signatureCipher)=([^&\"]+)@s) {
+        my $sig4 = url_unquote ($2);
         $sig4 =~ s/^.*"(.*?)".*$/$1/s;
         my ($s2)  = ($sig4 =~ m/\bs=([^&]+)/s);
         my ($u2)  = ($sig4 =~ m/\burl=([^&]+)/s);
@@ -2999,6 +3051,7 @@ my $blocked_re = join ('|',
                         'has closed their YouTube account',
                         'is not available',
                         'is unavailable',
+                        'video unavailable',
                         'is not embeddable',
                         'can\'t download rental videos',
                         'livestream videos',
@@ -3103,7 +3156,6 @@ sub load_youtube_formats_html($$$) {
   if (!$title || $title =~ m/^untitled$/si) {
     if ($body =~ m/\\?"title\\?":\\?"(.*?)\\?",/si) {
       $title = $1;
-      $title =~ s/\\//gs;
       $title = munge_title (html_unquote ($title));
     }
   }
@@ -3897,7 +3949,7 @@ sub get_youtube_year($;$) {
   # 2015, I edited the description text.  I have no theory for why the
   # "published" and "updated" dates are different and are both 2015.
   #
-  # So, let's scrape the HTML isntead of using the API.
+  # So, let's scrape the HTML instead of using the API.
   #
   # (Actually, we don't have a choice now anyway, since they turned off
   # the v2 API in June 2015, and the v3 API requires authentication.)
@@ -3918,8 +3970,14 @@ sub get_youtube_year($;$) {
   #   ($body =~ m@<published>(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)@si);
 
   ($year) = ($body =~ m@\bclass="watch-time-text">[^<>]+\b(\d{4})</@s);
-  $youtube_year_cache{$id} = $year;
 
+  # Jul 2020
+  ($year) = ($body =~ m@\"uploadDate\\?\":\\?\"(\d{4})-\d\d-@si)
+    unless $year;
+  ($year) = ($body =~ m@\"uploadDate\" content=\"(\d{4})-\d\d-@si)
+    unless $year;
+
+  $youtube_year_cache{$id} = $year;
   return $year;
 }
 
@@ -4957,7 +5015,7 @@ sub canonical_url($;) {
                     .*? [?&] list=(?:PL)? |
                     embed/videoseries\?list=(?:PL)?
                 )
-                ([^<>?&,]+) ($|&) @sx) {
+                ([^<>?&,\#]+) ($|[&\#]) @sx) {
     ($site, $id) = ($1, $2);
     $url = "https://www.$site.com/view_play_list?p=$id";
     $playlist_p = 1;
@@ -4965,13 +5023,13 @@ sub canonical_url($;) {
   # Youtube "/verify_age" URLs.
   } elsif ($url =~
            m@^https?://(?:[a-z]+\.)?(youtube) (?:-nocookie)? \.com/+
-	     .* next_url=([^&]+)@sx ||
+	     .* next_url=([^&\#]+)@sx ||
            $url =~ m@^https?://(?:[a-z]+\.)?google\.com/
                      .* service = (youtube)
-                     .* continue = ( http%3A [^?&]+)@sx ||
+                     .* continue = ( http%3A [^?&\#]+)@sx ||
            $url =~ m@^https?://(?:[a-z]+\.)?google\.com/
                      .* service = (youtube)
-                     .* next = ( [^?&]+)@sx
+                     .* next = ( [^?&\#]+)@sx
           ) {
     $site = $1;
     $url = url_unquote($2);
@@ -4990,13 +5048,13 @@ sub canonical_url($;) {
                          .*? &v= |
                          [^/\#?&]+ \#p(?: /[a-zA-Z\d] )* /
                      )
-                     ([^<>?&,\'\"]+) ($|[?&]) @sx) {
+                     ([^<>?&,\'\"\#]+) ($|[?&#]) @sx) {
     ($site, $id) = ($1, $2);
     $url = "https://www.$site.com/watch?v=$id";
 
   # Youtube "/user" and "/profile" URLs.
   } elsif ($url =~ m@^https?://(?:[a-z]+\.)?(youtube) (?:-nocookie)? \.com/
-                     (?:user|profile).*\#.*/([^&/]+)@sx) {
+                     (?:user|profile).*\#.*/([^&/\#]+)@sx) {
     $site = $1;
     $id = url_unquote($2);
     $url = "https://www.$site.com/watch?v=$id";
@@ -5018,7 +5076,7 @@ sub canonical_url($;) {
   # Vimeo /channels/name/NNNNNN URLs.
   # Vimeo /ondemand/name/NNNNNN URLs.
   } elsif ($url =~
-           m@^https?://(?:[a-z]+\.)?(vimeo)\.com/[^/]+/[^/]+/(\d+)@s) {
+           m@^https?://(?:[a-z]+\.)?(vimeo)\.com/[^/?&\#]+/[^/?&\#]+/(\d+)@s) {
     ($site, $id) = ($1, $2);
     $url = "https://$site.com/$id";
 
@@ -5035,7 +5093,7 @@ sub canonical_url($;) {
 
   # Tumblr /video/UUU/NNNNN
   } elsif ($url =~
-           m@^https?://[-_a-z\d]+\.(tumblr)\.com/video/([^/]+)/(\d{8,})/@si) {
+        m@^https?://[-_a-z\d]+\.(tumblr)\.com/video/([^/?&\#]+)/(\d{8,})/@si) {
     my $user;
     ($site, $user, $id) = ($1, $2, $3);
     $site = lc($site);
@@ -5050,14 +5108,15 @@ sub canonical_url($;) {
     $url = "https://$user.$site.com/post/$id";
 
   # Instagram /p/NNNNN
-  } elsif ($url =~ m@^https?://([-_a-z\d]+\.)?(instagram)\.com/p/([^/?&]+)@si) {
+  } elsif ($url =~
+           m@^https?://([-_a-z\d]+\.)?(instagram)\.com/p/([^/?&\#]+)@si) {
     (undef, $site, $id) = ($1, $2, $3);
     $site = lc($site);
     $url = "https://www.$site.com/p/$id";
 
   # Twitter /USER/status/NNNNN
-  } elsif ($url =~ m@^https?://([-_a-z\d]+\.)?(twitter)\.com/([^/?&]+)
-                     /status/([^/?&]+)@six) {
+  } elsif ($url =~ m@^https?://([-_a-z\d]+\.)?(twitter)\.com/([^/?&\#]+)
+                     /status/([^/?&\#]+)@six) {
     my $user;
     (undef, $site, $user, $id) = ($1, $2, $3, $4);
     $site = lc($site);
@@ -5768,29 +5827,29 @@ sub youtube_playlist_urls($$;$) {
   sanity_check_title ($title, $url, $body, 'youtube_playlist_urls');
   $title = 'Untitled Playlist' unless $title;
 
-  ($body =~ s/^.*?<div \s+ id="pl-video-list"//six) ||
-  ($body =~ s/^.*?<\/ytd-playlist-sidebar-renderer//six) ||
-    errorI ("unparsable playlist HTML: $url");
+  #### Sync this with .js
 
+  my $i = 0;
+  while ($body =~ m@{"playlistVideoRenderer":
+                      \{"videoId":"([^\"]+)" .*?
+                       "label":"([^\"]+)"@sxg) {
+    my ($id, $t2) = ($1, $2);
+    push \@playlist, [ $t2, 'https://www.youtube.com/watch?v=' . $id ];
+  }
+
+  #### Probably doesn't work any more
   my ($more) = ($body =~ m@href=[\"\']([^\"\']*/browse_ajax[^\"\']+)@si);
+
+  #### Alternately https://www.youtube.com/playlist?list=PL...&pbj=1
+  #  with headers
+  #    X-YouTube-Client-Name: 1
+  #    X-YouTube-Client-Version: 2.20200806.01.01
+  #  but that also only returns the first 100 entries.
 
   if ($first_only_p) {
     @playlist = ( $playlist[0] );
     $more = undef;
   }
-
-  my $i = 0;
-  $body =~ s@<A \b (.*?) > \s* ([^<>]*?) \s* </A> @{
-    my ($href, $t2) = ($1, $2);
-    (undef, $href) = ($href =~ m% \b href \s* = \s* ([\"\'])(.*?)\1%six);
-    if ($href && $t2) {
-      $href = html_unquote($href);
-      if ($href =~ m%[?&]v=([^?&]+)%si) {
-        push \@playlist, [ $t2, 'https://www.youtube.com/watch?v=' . $1 ];
-      }
-    }
-    "";
-  }@gsexi;
 
   errorI ("$id: no playlist entries?") unless @playlist;
 
