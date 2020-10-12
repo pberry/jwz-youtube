@@ -38,7 +38,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.67 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.69 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -247,6 +247,8 @@ sub scan_feed($$) {
       $url = ('https://www.youtube.com/feeds/videos.xml?' .
               ($kind eq 'user' ? 'user' : 'channel_id') . '=' . $uid);
     } else {
+      print STDERR "#### Not scanning user feed $uid\n";
+      return;
       return scan_youtube_user_feed ($uid, $url);
     }
   } elsif ($url =~ m@youtube\.com/playlist\?list=([^?&]+)@si) {
@@ -513,8 +515,8 @@ sub scan_youtube_user_feed($$) {
 # Download the URL into the current directory.
 # Returns 1 if successful, 0 otherwise.
 #
-sub download_url($$$$) {
-  my ($url, $title, $ftitle, $bwlimit) = @_;
+sub download_url($$$$$) {
+  my ($url, $title, $ftitle, $bwlimit, $max_size) = @_;
 
   foreach ($title, $ftitle) {
     s/^youtube[^a-z\d]*//si;  # Thanks I am aware.
@@ -526,6 +528,7 @@ sub download_url($$$$) {
   my @cmd = ($youtubedown, "--suffix");
   push @cmd, "--quiet" if ($verbose == 0);
   push @cmd, ("--bwlimit", $bwlimit) if ($bwlimit);
+  push @cmd, ("--max-size", $max_size) if ($max_size);
   push @cmd, "-" . ("v" x ($verbose - 3)) if ($verbose > 3);
   push @cmd, "--size" if ($debug_p);
   push @cmd, ("--prefix", $ftitle) if $ftitle;
@@ -551,8 +554,8 @@ sub download_url($$$$) {
 }
 
 
-sub pull_feeds($$) {
-  my ($dir, $bwlimit) = @_;
+sub pull_feeds($$$) {
+  my ($dir, $bwlimit, $max_size) = @_;
 
   binmode (STDOUT, ':utf8');   # video titles in messages
   binmode (STDERR, ':utf8');
@@ -680,7 +683,7 @@ sub pull_feeds($$) {
       $ftitle3 = "$ftitle2: $uauthor: $1"
         if ($utitle && $utitle =~ m/^DNA Lounge: ([a-z]{3} \d\d?) /si);
 
-      next unless download_url ($url, $utitle, $ftitle3, $bwlimit);
+      next unless download_url ($url, $utitle, $ftitle3, $bwlimit, $max_size);
       next if $debug_p;
 
       unshift @hist, $url;  # put it on the front
@@ -731,19 +734,21 @@ sub usage() {
 sub main() {
   my $dir;
   my $bwlimit;
+  my $max_size;
   while ($#ARGV >= 0) {
     $_ = shift @ARGV;
     if (m/^--?verbose$/) { $verbose++; }
     elsif (m/^-v+$/) { $verbose += length($_)-1; }
     elsif (m/^--?debug$/) { $debug_p++; }
     elsif (m/^--?bwlimit$/) { $bwlimit = shift @ARGV; }
+    elsif (m/^--?max-size$/) { $max_size = shift @ARGV; }
     elsif (m/^-./) { usage; }
     elsif (!$dir) { $dir = $_; }
     else { usage; }
   }
 
   usage unless ($dir);
-  pull_feeds ($dir, $bwlimit);
+  pull_feeds ($dir, $bwlimit, $max_size);
 }
 
 main();
