@@ -66,7 +66,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1606 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1611 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -2387,6 +2387,10 @@ my %ciphers = (
   '12237e3d/player_ias.vflset/en_US/base' => '18529 s1 r s2',     # 24 Sep 2020
   '4c375770/player_ias.vflset/en_US/base' => '18536 s3 w41 s3 w3 s3 r',# 01 Oct 2020
   '1a1b48e5/player_ias.vflset/en_US/base' => '18540 s1 w45 r s3 r s1 w50 s1 r',# 05 Oct 2020
+  '3c37ed48/player_ias.vflset/en_US/base' => '18547 r w15 r',     # 12 Oct 2020
+  '00510e67/player_ias.vflset/en_US/base' => '18550 w62 r s1 w45 r s2 r',# 15 Oct 2020
+  '5799986b/player_ias.vflset/en_US/base' => '18554 w29 r w38 r', # 19 Oct 2020
+  '4a1799bd/player_ias.vflset/en_US/base' => '18557 s2 w30 r',    # 22 Oct 2020
 );
 
 
@@ -3116,6 +3120,7 @@ my $blocked_re = join ('|',
                         'Premieres in \d+ (min|hour|day|week|month)',
                         'video has not yet premiered',
                         'live event will begin in',
+                        'live event has ended',
                         '^[^:]+: exists: ',
                         'no pre-muxed format',
                        ));
