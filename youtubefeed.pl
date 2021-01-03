@@ -38,7 +38,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.69 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.70 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -47,7 +47,11 @@ my $youtubedown = 'youtubedown';
 my $youtube_api = 'youtube-api.pl';
 my $youtube_api_user = $ENV{USER};
 
-$youtube_api_user = 'yesthatjwz' if ($youtube_api_user eq 'jwz'); # blargh
+# Blargh, use my real account name:
+$youtube_api_user = 'yesthatjwz' if ($ENV{USER} eq 'jwz');
+
+# Nah, use a 2nd account so that my main account doesn't get quota hits:
+$youtube_api_user = 'jwz2' if ($ENV{USER} eq 'jwz');
 
 
 my $max_urls = 100;	# Don't download more than N from a feed at once.
@@ -227,6 +231,7 @@ sub canonical_url($;) {
 # Returns the list of video URLs in the given feed.
 # ($title, $total_urls, @urls)
 #
+sub scan_feed($$);
 sub scan_feed($$) {
   my ($url, $kill_re) = @_;
 
@@ -286,7 +291,18 @@ sub scan_feed($$) {
 
   utf8::decode ($body);  # Pack multi-byte UTF-8 back into wide chars.
 
-  error ("looks like HTML: $url") if ($body =~ m/^\s*<(HEAD|!DOCTYPE)\b/si);
+  # /c/NAME needs to be changed to /channel/UNREADABLE_CRAP
+  if ($body =~ m/^\s*<(HEAD|!DOCTYPE)\b/si) {
+    if ($body =~ m@<meta name="twitter:url" content="(.*?)"@si) {
+      my $u2 = $1;
+      if ($u2 ne $url && $u2 =~ m@/channel/@s) {
+        print STDERR "$progname:  $url -> $u2\n" if ($verbose > 2);
+        return scan_feed ($u2, $kill_re);
+      }
+    }
+
+    error ("looks like HTML: $url");
+  }
 
   $body =~ s/(<(entry|item)\b)/\001$1/gsi;
   my @items = split("\001", $body);
