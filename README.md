@@ -10,4 +10,4 @@ documentation.  No representations are made about the suitability of this
 software for any purpose.  It is provided "as is" without express or 
 implied warranty.
 
-I don't know how much plainer I can be. This code is under his copyright. I just happen to keep copies on GitHub.
+I don't know how much plainer I can be. This code is under his copyright. I just happen to keep copies on GitHub. You can find his copy on his website at [jwz.org/hacks/youtubedown](https://www.jwz.org/hacks/youtubedown)
