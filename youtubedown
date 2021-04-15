@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright © 2007-2020 Jamie Zawinski <jwz@jwz.org>
+# Copyright © 2007-2021 Jamie Zawinski <jwz@jwz.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -69,7 +69,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1636 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1671 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -2413,6 +2413,39 @@ my %ciphers = (
   'c88a8657/player_ias.vflset/en_US/base' => '18612 r s1 r w18 s3 w36 r w32 s3',# 16 Dec 2020
   '2e6e57d8/player_ias.vflset/en_US/base' => '18613 w9 w4 r w54 r',# 17 Dec 2020
   '5dd3f3b2/player_ias.vflset/en_US/base' => '18617 r w13 s3 r w69 s2 w58 r s1',# 21 Dec 2020
+  '9f996d3e/player_ias.vflset/en_US/base' => '18634 s2 r s2 w1 w8',# 07 Jan 2021
+  'bfb74eaf/player_ias.vflset/en_US/base' => '18645 s2 r w29',    # 18 Jan 2021
+  '27cea338/player_ias.vflset/en_US/base' => '18652 w35 s2 w8 r w51',# 25 Jan 2021
+  'c6df6ed7/player_ias.vflset/en_US/base' => '18653 w35 s3 r w44 s1',# 26 Jan 2021
+  '7bc032d0/player_ias.vflset/en_US/base' => '18655 r w56 w14 w9 r w30 r s3',# 28 Jan 2021
+  'f6ef8aad/player_ias.vflset/en_US/base' => '18659 s1 w34 s2 r w64 s1 w55 r s3',# 01 Feb 2021
+  '4bc55fd6/player_ias.vflset/en_US/base' => '18660 s2 r s1',     # 02 Feb 2021
+  '0e3144b6/player_ias.vflset/en_US/base' => '18662 r s1 r w10 r s3 w68 s3 w58',# 04 Feb 2021
+  '31234943/player_ias.vflset/en_US/base' => '18667 s2 r s1 r s3 r s2 r w66',# 09 Feb 2021
+  '0ce056a2/player_ias.vflset/en_US/base' => '18668 w55 w55 s2 r',# 10 Feb 2021
+  '490079fb/player_ias.vflset/en_US/base' => '18669 r s1 r s3 r w61 w60',# 11 Feb 2021
+  '6eebf7aa/player_ias.vflset/en_US/base' => '18673 w2 s2 w24',   # 15 Feb 2021
+  '1c732901/player_ias.vflset/en_US/base' => '18676 r s3 w37 s3', # 18 Feb 2021
+  '5a096a9f/player_ias.vflset/en_US/base' => '18680 w17 r s3 w12 s1 r w47 r',# 22 Feb 2021
+  '392133a3/player_ias.vflset/en_US/base' => '18681 r s2 r w48 s1 w15 r',# 23 Feb 2021
+  '4fe52f49/player_ias.vflset/en_US/base' => '18683 w20 s2 w13 r s3',# 25 Feb 2021
+  '0d54190b/player_ias.vflset/en_US/base' => '18688 w18 r s1 w17 r w60 r s3 w39',# 02 Mar 2021
+  'a09205f7/player_ias.vflset/en_US/base' => '18690 w33 r s1 r s1 r s2',# 04 Mar 2021
+  'd91669a4/player_ias.vflset/en_US/base' => '18694 s2 r s1 w54 w14 w12 s3',# 08 Mar 2021
+  '34a43f74/player_ias.vflset/en_US/base' => '18695 r w27 r s1 r w4 r w41 w41',# 09 Mar 2021
+  'd29f3109/player_ias.vflset/en_US/base' => '18697 r w2 w25 r w21 s3 w35 s2 w70',# 11 Mar 2021
+  'b2e56c01/player_ias.vflset/en_US/base' => '18701 w18 w37 w29 w21 s2 r w29 s2 r',# 15 Mar 2021
+  '223a7479/player_ias.vflset/en_US/base' => '18702 s3 w54 w21 w23 w57 w2 r w22',# 16 Mar 2021
+  '228f3ac7/player_ias.vflset/en_US/base' => '18708 s3 w54 r w39 r',# 22 Mar 2021
+  '38c5f870/player_ias.vflset/en_US/base' => '18709 w51 r s3 w11 r s2 r',# 23 Mar 2021
+  '9f1ab255/player_ias.vflset/en_US/base' => '18716 r s2 r w68 w66 r',# 30 Mar 2021
+  '4ad4b014/player_ias.vflset/en_US/base' => '18717 s3 w63 w20 s1 r w44 s1',# 31 Mar 2021
+  '3a4ee0a9/player_ias.vflset/en_US/base' => '18718 w9 w21 s3 r s3 w46 w67 r w15',# 01 Apr 2021
+  '1c20fac3/player_ias.vflset/en_US/base' => '18722 w25 r s1 r s3 w65 w32 s1 r',# 05 Apr 2021
+  '1d7f16b4/player_ias.vflset/en_US/base' => '18723 r w27 s3 w23 r w56 w46 r s1',# 06 Apr 2021
+  'd2ff46c3/player_ias.vflset/en_US/base' => '18725 w19 s2 w2 w24',# 08 Apr 2021
+  '2cea24bf/player_ias.vflset/en_US/base' => '18729 s1 w69 w1 w18 r w2',# 12 Apr 2021
+  '82e684c7/player_ias.vflset/en_US/base' => '18730 s2 w9 r s3 r w53 r',# 13 Apr 2021
 );
 
 
@@ -5127,6 +5160,7 @@ sub canonical_url($;) {
   # Forgive pinheaddery.
   $url =~ s@&amp;@&@gs;
   $url =~ s@&amp;@&@gs;
+  $url =~ s/^\s+|\s+$//gs;
 
   # Add missing "https:"
   $url = "https://$url" unless ($url =~ m@^https?://@si);
@@ -5998,6 +6032,8 @@ sub youtube_playlist_urls($$;$) {
 
   if ($body =~ m/window\[.ytInitialData.\] *= *(.*?);/s) {
     $body = $1;
+  } elsif ($body =~ m/var *ytInitialData *= *(.*?);/s) {
+    $body = $1;
   } else {
     errorI ("playlist html unparsable: $url");
   }
@@ -6013,7 +6049,8 @@ sub youtube_playlist_urls($$;$) {
   foreach my $chunk (split (/\n/, $body)) {
     my $id = $1 if ($chunk =~ m/\{"videoId":"(.*?)"/si);
     my $t2 = $1 if ($chunk =~ m/"simpleText":"(.*?)"/si);
-    $t2 = $1 if (!$t2 && $chunk =~ m/"title".*?"[a-z]*text":"(.*?)"/si);
+    $t2 = "" if ($t2 && $t2 =~ /^[\d:]*$/);  # if $t2 was index or duration
+    $t2 = $1 if (!$t2 && $chunk =~ m/"title".*?"[a-z]*text":"(.*?)"\}/si);
     next unless defined($id);
     next if ($id eq $prev_id);
     $prev_id = $id;
@@ -6065,7 +6102,8 @@ sub youtube_playlist_urls($$;$) {
     foreach my $chunk (split (/\n/, $body)) {
       my $id = $1 if ($chunk =~ m/\{"videoId":"(.*?)"/si);
       my $t2 = $1 if ($chunk =~ m/"simpleText":"(.*?)"/si);
-      $t2 = $1 if (!$t2 && $chunk =~ m/"title".*?"[a-z]*text":"(.*?)"/si);
+      $t2 = "" if ($t2 && $t2 =~ /^[\d:]*$/);  # if $t2 was index or duration
+      $t2 = $1 if (!$t2 && $chunk =~ m/"title".*?"[a-z]*text":"(.*?)"\}/si);
       next unless defined($id);
       next if ($id eq $prev_id);
       $prev_id = $id;
