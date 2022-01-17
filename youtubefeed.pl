@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright © 2013-2020 Jamie Zawinski <jwz@jwz.org>
+# Copyright © 2013-2021 Jamie Zawinski <jwz@jwz.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -20,7 +20,8 @@
 #			of the feed entry, not the title of the video.
 #   Feeds/.state	Where the list of already-downloaded URLs is written.
 #
-# The .feeds file can also contain the URLs of Youtube users.
+# The .feeds file can also contain the URLs of Youtube users, channels,
+# or playlists.
 #
 # Created: 29-Jul-2013.
 
@@ -38,7 +39,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.70 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.74 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -235,9 +236,12 @@ sub scan_feed($$);
 sub scan_feed($$) {
   my ($url, $kill_re) = @_;
 
+  $LWP::Simple::ua->timeout(20);
+  $LWP::Simple::ua->agent ("$progname/$version");
+
   # Rewrite Youtube and Vimeo channel URLs to the RSS version.
   #
-  if ($url =~ m@youtube\.com/(user|channel)/([^/?&]+)(:?/([^/?&]+))?@si) {
+  if ($url =~ m@youtube\.com/(user|channel)/([^/?&]+)(?:/([^/?&]+))?@si) {
     #
     # This used to work, but the v2 API was turned off in Apr 2015,
     # so now we have to do it the hard way.
@@ -245,16 +249,44 @@ sub scan_feed($$) {
     #   $url = ('http://gdata.youtube.com/feeds/base/users/' . $1 .
     #          '/uploads?v=2&alt=rss');
     #
-    my ($kind, $uid, $list) = ($1, $2);
+    my ($kind, $uid, $list) = ($1, $2, $3);
+    $list = '' unless $list;
 
     # Oh hey, this undocumented thing works on uploads -- but for how long?
-    if (($list || 'uploads') eq 'uploads') {
+    if (!$list ||
+        $list eq 'uploads' ||
+        $list eq 'videos') {
       $url = ('https://www.youtube.com/feeds/videos.xml?' .
               ($kind eq 'user' ? 'user' : 'channel_id') . '=' . $uid);
+    } elsif ($list eq 'playlists') {
+
+      my $body = LWP::Simple::get ($url) || '';
+      my %pids;
+      my @purls;
+      foreach my $pid ($body =~ m/"playlistId":"([^\"]+)"/gs) {
+        push @purls, 'https://www.youtube.com/playlist?list=' . $pid
+          unless $pids{$pid};
+        $pids{$pid} = 1;
+      }
+      my $ftitle = '?';
+      my $ftotal = 0;
+      my @urls;
+      foreach my $purl (@purls) {
+        print STDERR "$progname: reading playlist $purl\n" if ($verbose > 1);
+        my ($ftitle2, $ftotal2, @urls2) = scan_feed ($purl, $kill_re);
+        $ftitle = $ftitle2 unless $ftitle;
+        $ftotal += $ftotal2;
+        push @urls, @urls;
+      }
+        
+      return ($ftitle, $ftotal, @urls);
+
     } else {
-      print STDERR "#### Not scanning user feed $uid\n";
-      return;
+      # Why did I do this?
+      # print STDERR "#### Not scanning user feed $uid\n";
+print STDERR "## user feed $uid $url\n";
       return scan_youtube_user_feed ($uid, $url);
+print STDERR "##<<\n";
     }
   } elsif ($url =~ m@youtube\.com/playlist\?list=([^?&]+)@si) {
     $url = 'https://www.youtube.com/feeds/videos.xml?playlist_id=' . $1;
@@ -264,15 +296,14 @@ sub scan_feed($$) {
     $url = 'http://vimeo.com/' . $1 . '/videos/rss';
   }
 
+  error ("bad feed url $url") unless ($url =~ m@^https?://@);
+
   print STDERR "$progname: reading $url\n" if ($verbose > 1);
 
   my $min_length = 1024;
   my $retries = 5;
   my $count = 0;
   my $body = '';
-
-  $LWP::Simple::ua->timeout(20);
-  $LWP::Simple::ua->agent ("$progname/$version");
 
   while (1) {
     $body = LWP::Simple::get ($url);
@@ -351,7 +382,7 @@ sub scan_feed($$) {
     # Don't convert $html, we still need to parse it.
 
     foreach ($title, $author) {
-      s/ \\[ux] { ([a-z0-9]+)   } / chr(hex($1)) /gsexi;  # \u{XXXXXX}
+      s/ \\[ux] \{ ([a-z0-9]+) \} / chr(hex($1)) /gsexi;  # \u{XXXXXX}
       s/ \\[ux]   ([a-z0-9]{4})   / chr(hex($1)) /gsexi;  # \uXXXX
 
       s/\xA0/ /gs;  # &nbsp;
@@ -669,6 +700,7 @@ sub pull_feeds($$$) {
     # came from.
     #
     my $ftitle2;
+    $ftitle = '' unless $ftitle;
     if ($feed =~ m@(?:channels|groups|user|vimeo\.com)/([^/]+)/?$@si) {
       $ftitle2 = $1;
     } elsif ($ftitle =~ m/^Uploads by (.*)$/si) {
@@ -678,7 +710,7 @@ sub pull_feeds($$$) {
     } elsif ($ftitle =~ m@^Vimeo / (.*)$@si) {
       $ftitle2 = $1;
     } elsif ($feed =~ m@^https?://[^.]+\.([^./]+)\.@si && 
-             $1 !~ m/jwz|tumblr|feedburner|blogspot/si) {
+             $1 !~ m/jwz|tumblr|feedburner|blogspot|youtube/si) {
       $ftitle2 = $1;
     } else {
       $ftitle2 = $ftitle;
