@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright © 2007-2021 Jamie Zawinski <jwz@jwz.org>
+# Copyright © 2007-2022 Jamie Zawinski <jwz@jwz.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -20,7 +20,7 @@
 #  --progress        Show a textual progress bar for downloads.
 #  --bwlimit Nkbps   Throttle download speed.
 #  --parallel N	     Bypass rate limiting by making N multiple simultaneous
-#		     connections.
+#		     connections. Default 30.
 #
 #  --size            Instead of downloading it all, print video dimensions.
 #		     This requires "ffmpeg".
@@ -72,7 +72,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1786 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1796 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -110,16 +110,18 @@ sub rmf() {
 sub signal_cleanup($) {
   my ($s) = @_;
   print STDERR "$progname: SIG$s\n" if ($verbose > 1);
-  exit (2);  # This causes END{} to run.
-  # I'd like to propagate the signal to the caller, but I don't see how.
+  rmf();
+  # Propagate the signal and die. This does not cause END to run.
+  $SIG{$s} = 'DEFAULT';
+  kill ($s, $$);
 }
 
-$SIG{HUP}  = \&signal_cleanup;
-$SIG{INT}  = \&signal_cleanup;
-$SIG{QUIT} = \&signal_cleanup;
+$SIG{TERM} = \&signal_cleanup;  # kill
+$SIG{INT}  = \&signal_cleanup;  # shell ^C
+$SIG{QUIT} = \&signal_cleanup;  # shell ^|
+$SIG{KILL} = \&signal_cleanup;  # nope
 $SIG{ABRT} = \&signal_cleanup;
-$SIG{KILL} = \&signal_cleanup;
-$SIG{TERM} = \&signal_cleanup;
+$SIG{HUP}  = \&signal_cleanup;
 
 
 my $total_retries = 0;
@@ -532,16 +534,41 @@ sub parse_content_range($$$$) {
   # not the length of the full document.
   my ($cl) = ($head =~ m@^Content-Length: \s* (\d+) @mix);
 
+  # "An asterisk character ('*') in place of the complete-length
+  # indicates that the representation length was unknown when the header
+  # field was generated.  ...  A Content-Range field value is invalid if
+  # it contains ... a complete-length value less than or equal to its
+  # last-byte-pos value."  And yet, Youtube is sometimes returning:
+  #
+  #   Content-Range: bytes 296960-307199/-2
+  #   Content-Length: 10240
+
   if ($start_byte || $max_bytes) {
     my ($s, $e, $cl2) = ($head =~ m@^Content-Range:
                                     \s* bytes \s+
                                     (\d+) \s* - \s*
                                     (\d+) \s* / \s*
-                                    (\d+) \s* $@mix);
+                                    ( \* | -? \d+ ) \s* $@mix);
+    if (!defined($cl2)) {
+      # Maybe it responded without a Content-Range header because
+      # we requested the whole range?
+      ($cl2) = ($head =~ m@^Content-Length: \s* (\d+) \s* $@mix);
+      if ($cl2) {
+        $s = 0;
+        $e = $cl2 - 1;
+      }
+    }
+
     error ("attempting to resume download failed: $url\n$head")
       unless defined($cl2);
     error ("attempting to resume download failed: wrong start byte: $url")
       unless ($s == $start_byte);
+
+    # We can't work with "*" or "-2".
+    $cl2 = undef unless ($cl2 && $cl2 =~ m/^\d+$/);
+    # error ("attempting to resume download failed: bogus range-length: $url" .
+    #        "\n$head")
+    #   unless ($cl2 && $cl2 =~ m/^\d+$/);
 
     # In byte-ranges mode, Content-Length is the length of the chunk being
     # returned; the document content-length is in the Content-Range header.
@@ -1233,7 +1260,8 @@ sub get_url_1_parallel($;$$$$$$$$) {
 
   my ($cl, $document_length) =
     parse_content_range ($url, $qurl0->{head}, $start_byte, $max_bytes);
-  error ("no content length: $url") unless $cl;
+  error ("no range length: $url") unless $cl;
+  error ("no content length: $url") unless $document_length;
 
   # My first thought was to have a maximum number of bytes for each worker
   # to load, and then start up to N workers to load that; and start more
@@ -2979,6 +3007,15 @@ my %ciphers = (
   'edff9f99/player_ias.vflset/en_US/base' => '18997 w4 w11 r s1 w54 w4 r w18',# 05 Jan 2022
   'f93a7034/player_ias.vflset/en_US/base' => '19002 w29 w9 s3 r s1 w53',# 10 Jan 2022
   '18da33ed/player_ias.vflset/en_US/base' => '19005 s1 w67 s2 r s3',# 13 Jan 2022
+  '2b718ca6/player_ias.vflset/en_US/base' => '19011 r s3 r w32 w61 w25 s3 r s1',# 19 Jan 2022
+  '94ee882e/player_ias.vflset/en_US/base' => '19012 s3 r w31 s1 r s2 r',# 20 Jan 2022
+  '6087f117/player_ias.vflset/en_US/base' => '19016 r w13 s2 r w70 s3 w29',# 24 Jan 2022
+  '8ad9c87a/player_ias.vflset/en_US/base' => '19018 s3 r s3 r s3',# 26 Jan 2022
+  '495d0f2b/player_ias.vflset/en_US/base' => '19019 s2 w49 r s2 w5 w14 r',# 27 Jan 2022
+  'e06dea74/player_ias.vflset/en_US/base' => '19023 s1 w45 r',    # 31 Jan 2022
+  'cdb8d439/player_ias.vflset/en_US/base' => '19025 s1 w23 s1',   # 02 Feb 2022
+  '0cd11746/player_ias.vflset/en_US/base' => '19026 s1 r s1',     # 03 Feb 2022
+  '326d75a6/player_ias.vflset/en_US/base' => '19030 r w14 s3 w23 r s3 r s2',# 07 Feb 2022
 );
 
 
@@ -6106,6 +6143,8 @@ sub load_formats($$) {
 }
 
 
+my %fmt_all_retry_kludge;
+
 sub download_video_url($$$$$$$$$$$$);
 sub download_video_url($$$$$$$$$$$$) {
   my ($url, $title, $prefix, $outfile, $size_p,
@@ -6300,6 +6339,10 @@ sub download_video_url($$$$$$$$$$$$) {
     my $url2  = $fmt->{url};
     my $dashp = $fmt->{dashp};
 
+    # If we are doing "--fmt all" and we get an error downloading one of
+    # them, don't retry *all* of them.
+    next if ($fmt_all_retry_kludge{$target});
+
     $error_whiteboard .= "fmt $target: $url2\n\n";
 
     if ($size_p) {
@@ -6487,6 +6530,9 @@ sub download_video_url($$$$$$$$$$$$) {
       # If we're not muxing, this is the final file.
       delete $rm_f{$file} unless @pair;
     }
+
+    $fmt_all_retry_kludge{$target} = 1
+      if ($force_fmt && $force_fmt eq 'all');
   }
 
   if (@pair) {
@@ -6898,6 +6944,11 @@ sub main() {
     guess_cipher (undef, $guessp - 1);
     exit (0);
   }
+
+  # 28-Jan-2022: Does this help? I dunno, maybe? Getting a lot of
+  # "30 seconds with no data" timeouts with odd formats when doing
+  # "--size --fmt all".
+  $parallel_loads = 0 if $size_p;
 
   usage unless ($#urls >= 0);
   foreach (@urls) {
