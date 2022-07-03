@@ -72,7 +72,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1796 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1859 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -3016,6 +3016,63 @@ my %ciphers = (
   'cdb8d439/player_ias.vflset/en_US/base' => '19025 s1 w23 s1',   # 02 Feb 2022
   '0cd11746/player_ias.vflset/en_US/base' => '19026 s1 r s1',     # 03 Feb 2022
   '326d75a6/player_ias.vflset/en_US/base' => '19030 r w14 s3 w23 r s3 r s2',# 07 Feb 2022
+  '96dcbc8c/player_ias.vflset/en_US/base' => '19032 w55 r s1 w18',# 09 Feb 2022
+  '41de1c08/player_ias.vflset/en_US/base' => '19037 w45 r w31',   # 14 Feb 2022
+  '4512a530/player_ias.vflset/en_US/base' => '19039 r w3 s2 w57 s1 r',# 16 Feb 2022
+  'c3125ad0/player_ias.vflset/en_US/base' => '19040 w40 r w27 w33 w17 s2 r',# 17 Feb 2022
+  'd2cc1285/player_ias.vflset/en_US/base' => '19044 s2 r w54 s2 w62',# 21 Feb 2022
+  'ad8ea84d/player_ias.vflset/en_US/base' => '19046 s2 w17 w31 s2 r',# 23 Feb 2022
+  '450209b9/player_ias.vflset/en_US/base' => '19047 r s3 w22 s1 w43 s3 r s1 w28',# 24 Feb 2022
+  '9c1a7c38/player_ias.vflset/en_US/base' => '19051 w52 w19 w37 r w6',# 28 Feb 2022
+  '0abde7de/player_ias.vflset/en_US/base' => '19054 r s3 r s1 r', # 03 Mar 2022
+  '2fd2ad45/player_ias.vflset/en_US/base' => '19058 r s2 r w30 s1',# 07 Mar 2022
+  '6d3a4914/player_ias.vflset/en_US/base' => '19060 s2 w22 w53 w26 r w48 s1 r w3',# 09 Mar 2022
+  '87b9576a/player_ias.vflset/en_US/base' => '19061 s1 w34 r',    # 10 Mar 2022
+  'bd67d609/player_ias.vflset/en_US/base' => '19065 r s3 w54 s1 r',# 14 Mar 2022
+  '006430cb/player_ias.vflset/en_US/base' => '19067 r s1 w4 s3 r s2',# 16 Mar 2022
+  '577098c0/player_ias.vflset/en_US/base' => '19068 w65 w57 r s1 r',# 17 Mar 2022
+  '293baa5d/player_ias.vflset/en_US/base' => '19072 s1 r s3 w66 w9',# 21 Mar 2022
+  '68423b67/player_ias.vflset/en_US/base' => '19074 w7 r w24 s3', # 23 Mar 2022
+  'c6736352/player_ias.vflset/en_US/base' => '19075 s2 r s2 r',   # 24 Mar 2022
+  '3a393eba/player_ias.vflset/en_US/base' => '19079 r w31 s2 w27 s2 w70 r s2 r',# 28 Mar 2022
+  '1d26561d/player_ias.vflset/en_US/base' => '19081 s2 r w40 s1', # 30 Mar 2022
+  '449ea0a5/player_ias.vflset/en_US/base' => '19082 s1 w31 s1 r s2 w19 s1',# 31 Mar 2022
+  '9e50a907/player_ias.vflset/en_US/base' => '19086 w34 s2 w28 r w58',# 04 Apr 2022
+  '689586e2/player_ias.vflset/en_US/base' => '19088 r s3 w20 s1', # 06 Apr 2022
+  '3b5d5649/player_ias.vflset/en_US/base' => '19089 r s3 w17 s3', # 07 Apr 2022
+  '1e29bfc0/player_ias.vflset/en_US/base' => '19093 w43 s3 r w47 s2 w57',# 11 Apr 2022
+  '0c665041/player_ias.vflset/en_US/base' => '19095 r w38 r w46 s1 r w64 s1 r',# 13 Apr 2022
+  'fae06c11/player_ias.vflset/en_US/base' => '19096 w64 s1 r',    # 14 Apr 2022
+  '19eb72e4/player_ias.vflset/en_US/base' => '19100 w17 w18 w3 r w69 r w23',# 18 Apr 2022
+  'ae36df5c/player_ias.vflset/en_US/base' => '19102 r s1 r w65 r s3 r',# 20 Apr 2022
+  '534c466c/player_ias.vflset/en_US/base' => '19103 s2 w34 s2 w35 r',# 21 Apr 2022
+  '596ef930/player_ias.vflset/en_US/base' => '19107 s1 r w37 w27 w11',# 25 Apr 2022
+  'fe8185e7/player_ias.vflset/en_US/base' => '19109 s2 r s2 w33 s1 r w19',# 27 Apr 2022
+  '9cdfefcf/player_ias.vflset/en_US/base' => '19110 s2 r w44 s2 r w29 w32',# 28 Apr 2022
+  'dfe7ea14/player_ias.vflset/en_US/base' => '19114 w50 w22 s2 r s3 w25 r s1 w52',# 02 May 2022
+  '7e5c03a3/player_ias.vflset/en_US/base' => '19115 s2 w25 w49 r s2',# 03 May 2022
+  'a4d8b401/player_ias.vflset/en_US/base' => '19117 s2 r s2 r s3 r s3 r',# 05 May 2022
+  '53aba266/player_ias.vflset/en_US/base' => '19121 w34 s1 r s1 r s3 r',# 09 May 2022
+  '8a298c38/player_ias.vflset/en_US/base' => '19123 w14 w14 w18 w47 w21 w61 w42 w17 r',# 11 May 2022
+  '00e475bf/player_ias.vflset/en_US/base' => '19124 w65 w31 r s2 r',# 12 May 2022
+  '9c7ce883/player_ias.vflset/en_US/base' => '19128 w68 r w68 r s2 w39 s1',# 16 May 2022
+  '3b04fdc7/player_ias.vflset/en_US/base' => '19130 w56 w46 s2 w46',# 18 May 2022
+  'ec0ced91/player_ias.vflset/en_US/base' => '19131 r w66 w44 s2 w28 w67 s3',# 19 May 2022
+  'c5a4daa1/player_ias.vflset/en_US/base' => '19135 w55 w18 w21 s1 w53',# 23 May 2022
+  'd1783cbe/player_ias.vflset/en_US/base' => '19137 s3 r s1 w63', # 25 May 2022
+  'c403842a/player_ias.vflset/en_US/base' => '19138 w54 s1 w18 s2 r s1 w6',# 26 May 2022
+  '02208bb4/player_ias.vflset/en_US/base' => '19144 s3 r w48',    # 01 Jun 2022
+  '966d033c/player_ias.vflset/en_US/base' => '19149 w50 s3 w64 w11 w42 w41 s2',# 06 Jun 2022
+  'd97f25df/player_ias.vflset/en_US/base' => '19151 s1 w28 r s3 w24 w42 w44',# 08 Jun 2022
+  '23010b46/player_ias.vflset/en_US/base' => '19152 w54 r s2 w65 w56 w53 s3 w4 s2',# 09 Jun 2022
+  '5dedc3ae/player_ias.vflset/en_US/base' => '19156 w6 w21 r s2 r s2 w69 r s2',# 13 Jun 2022
+  'df5197e2/player_ias.vflset/en_US/base' => '19157 w68 w11 w8 w38',# 14 Jun 2022
+  'f05de49d/player_ias.vflset/en_US/base' => '19159 w21 s3 w6',   # 16 Jun 2022
+  '9017ba60/player_ias.vflset/en_US/base' => '19166 r s3 w1 s1 w13 r s1',# 23 Jun 2022
+  '9c24c545/player_ias.vflset/en_US/base' => '19167 w69 s3 r s2 r s1 w46 s3 r',# 24 Jun 2022
+  '60c2da65/player_ias.vflset/en_US/base' => '19170 w3 s3 r s1',  # 27 Jun 2022
+  'bc3f94c3/player_ias.vflset/en_US/base' => '19172 w69 r s1 w58 s2 r',# 29 Jun 2022
+  '0e7373c2/player_ias.vflset/en_US/base' => '19173 r s3 w23 s3 r',# 30 Jun 2022
 );
 
 
@@ -3114,7 +3171,7 @@ sub guess_cipher($;$$) {
     check_http_status ('-', $url, $http, 2);
 
     my @vids = ();
-    $body =~ s%/watch\?v=([^\"\'<>]+)%{
+    $body =~ s%/watch\?v=([^\"\'<>\s]+)%{
       push @vids, $1;
       '';
     }%gsex;
@@ -4932,6 +4989,7 @@ sub pick_download_format($$$$$$) {
    317 => { v => 'webm', w =>  854, h =>  480, a => undef               },
    318 => { v => 'webm', w =>  854, h =>  480, a => undef               },
    327 => { v => undef,                        a => 'm4a', abr => 128, c=>5.1 },
+   328 => { v => undef,                        a => 'ec3', abr => 384, c=>5.1 },
    330 => { v => 'webm', w => 256,  h =>  144, a => undef               },
    331 => { v => 'webm', w => 426,  h =>  240, a => undef               },
    332 => { v => 'webm', w => 640,  h =>  360, a => undef               },
@@ -4949,6 +5007,7 @@ sub pick_download_format($$$$$$) {
    358 => { v => 'webm', w => 1280, h =>  720, a => undef               },
    359 => { v => 'webm', w => 1920, h => 1080, a => undef               },
    360 => { v => 'webm', w => 1920, h => 1080, a => undef               },
+   380 => { v => undef,                        a => 'ac3', abr => 384, c=>5.1 },
    394 => { v => 'av1',  w =>  256, h =>  144, a => undef               },
    395 => { v => 'av1',  w =>  426, h =>  240, a => undef               },
    396 => { v => 'av1',  w =>  640, h =>  360, a => undef               },
@@ -5814,11 +5873,12 @@ sub canonical_url($;) {
     }
     $url = "https://www.$site.com$url" if ($url =~ m@^/@s);
 
-  # Youtube /watch/?v= or /watch#!v= or /v/ URLs.
+  # Youtube /watch/?v= or /watch#!v= or /v/ or /shorts/ URLs.
   } elsif ($url =~ m@^https?:// (?:[a-z]+\.)?
                      (youtube) (?:-nocookie)? (?:\.googleapis)? \.com/+
                      (?: (?: watch/? )? (?: \? | \#! ) v= |
                          v/ |
+                         shorts/ |
                          embed/ |
                          .*? &v= |
                          [^/\#?&]+ \#p(?: /[a-zA-Z\d] )* /
@@ -5838,14 +5898,20 @@ sub canonical_url($;) {
   # Vimeo /NNNNNN URLs
   # and player.vimeo.com/video/NNNNNN
   # and vimeo.com/m/NNNNNN
+
+  # Apr 2022: saw this new weird URL: https://vimeo.com/684758548/1eacbca96e
+  # I tried adding that to the ID, and with a colon, and it doesn't work.
+
   } elsif ($url =~
-           m@^https?://(?:[a-z]+\.)?(vimeo)\.com/(?:video/|m/)?(\d+)@s) {
+           m@^https?://(?:[a-z]+\.)?(vimeo)\.com/(?:video/|m/)?(\d+(?:[:/][a-f\d]{10})?)@s) {
     ($site, $id) = ($1, $2);
+    $id =~ s@/@:@gs;
     $url = "https://$site.com/$id";
 
   # Vimeo /videos/NNNNNN URLs.
-  } elsif ($url =~ m@^https?://(?:[a-z]+\.)?(vimeo)\.com/.*/videos/(\d+)@s) {
+  } elsif ($url =~ m@^https?://(?:[a-z]+\.)?(vimeo)\.com/.*/videos/(\d+(?:[:/][a-f\d]{10})?)@s) {
     ($site, $id) = ($1, $2);
+    $id =~ s@/@:@gs;
     $url = "https://$site.com/$id";
 
   # Vimeo /channels/name/NNNNNN URLs.
@@ -5901,7 +5967,7 @@ sub canonical_url($;) {
     error ("unparsable URL: $url");
   }
 
-  error ("bogus URL: $url") if ($id =~ m@[/:?]@s);
+  #error ("bogus URL: $url") if ($id =~ m@[/:?]@s);
 
   return ($url, $id, $site);
 }
@@ -5949,12 +6015,17 @@ sub mux_downloaded_files($$$$$$$) {
     $muxed_file =~ s@\.[^./]+$@.mp4@gsi;
     $expect_same_size_p = 0;
     push @cmd, ('-c:v',		'libx264',	# video codec
-                '-profile:v',	'high',
+                '-profile:v',	'high',		# h.264 feature set allowed
+                '-preset',	'veryslow',	# maximum effort on compression
                 '-crf',		'22',		# h.264 quality (18 is high,
                 '-pix_fmt',	'yuv420p',	# 22 seems to match WebM)
-                '-acodec',	'aac',
-                '-ab',		'128k',		# audio bitrate
-                '-movflags',	'faststart');	# Move index to front
+              # '-acodec',	'aac',		# encode audio as AAC
+                '-acodec',	'libfdk_aac',	#  higher quality encoder
+                '-b:a',		'192k',		# audio bitrate
+                '-movflags',	'faststart',	# Move index to front
+                # Avoid "Too many packets buffered" with sparse audio frames.
+                '-max_muxing_queue_size', '1024',
+               );
   } else {
     push @cmd, ('-vcodec', 'copy',	# no re-encoding
                 '-acodec', 'copy');
@@ -6127,6 +6198,8 @@ sub content_type_ext($;) {
   elsif ($ct =~ m@/(x-)?av1$@si)  { return 'av1';  }
   elsif ($ct =~ m@/quicktime$@si) { return 'mov';  }
   elsif ($ct =~ m@^audio/mp4$@si) { return 'm4a';  }
+  elsif ($ct =~ m@^audio/ec3$@si) { return 'ec3';  }
+  elsif ($ct =~ m@^audio/ac3$@si) { return 'ac3';  }
   else                            { return 'mp4';  }
 }
 

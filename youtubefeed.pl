@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright © 2013-2021 Jamie Zawinski <jwz@jwz.org>
+# Copyright © 2013-2022 Jamie Zawinski <jwz@jwz.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -39,7 +39,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.74 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.76 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -132,12 +132,13 @@ sub canonical_url($;) {
     }
     $url = "https://www.$site.com$url" if ($url =~ m@^/@s);
 
-  # Youtube /watch/?v= or /watch#!v= or /v/ URLs.
+  # Youtube /watch/?v= or /watch#!v= or /v/ or /shorts/ URLs.
   } elsif ($url =~ m@^https?:// (?:[a-z]+\.)?
                      (youtube) (?:-nocookie)? (?:\.googleapis)? \.com/+
                      (?: (?: watch/? )? (?: \? | \#! ) v= |
                          v/ |
                          embed/ |
+                         shorts/ |
                          .*? &v= |
                          [^/\#?&]+ \#p(?: /[a-zA-Z\d] )* /
                      )
@@ -649,7 +650,10 @@ sub pull_feeds($$$) {
   print STDERR "$progname: locked $hist\n"
     if ($verbose > 1);
 
-  utime (undef, undef, $hist_fd);   # acquired lock, set file mtime to now
+  # macOS 11.6, perl 5.28.3: "The futimes function is unimplemented".
+  # This worked on macOS 10.14:
+  # utime (undef, undef, $hist_fd);
+  utime (undef, undef, $hist);      # acquired lock, set file mtime to now
 
   my @hist;
   while (<$hist_fd>) {
