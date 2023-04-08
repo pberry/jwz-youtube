@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright © 2007-2022 Jamie Zawinski <jwz@jwz.org>
+# Copyright © 2007-2023 Jamie Zawinski <jwz@jwz.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -72,7 +72,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1859 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1946 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -1253,7 +1253,7 @@ sub get_url_1_parallel($;$$$$$$$$) {
     my ($nfound, $timeleft) =
       select (my $rout = $rin, my $wout = $win, my $eout = $ein, $timeout);
     $timeout = $timeleft;
-    if (vec($rin, fileno($qurl0->{read_sock}), 1)) {
+    if (vec($rout, fileno($qurl0->{read_sock}), 1)) {
       qurl_read_chunk ($qurl0);
     }
   }
@@ -1338,7 +1338,7 @@ sub get_url_1_parallel($;$$$$$$$$) {
       select (my $rout = $rin, my $wout = $win, my $eout = $ein, $timeout);
     $timeout = $timeleft;
     foreach my $qurl (@running_queue) {
-      if (vec($rin, fileno($qurl->{read_sock}), 1)) {
+      if (vec($rout, fileno($qurl->{read_sock}), 1)) {
         qurl_read_chunk ($qurl);
       }
     }
@@ -3073,6 +3073,88 @@ my %ciphers = (
   '60c2da65/player_ias.vflset/en_US/base' => '19170 w3 s3 r s1',  # 27 Jun 2022
   'bc3f94c3/player_ias.vflset/en_US/base' => '19172 w69 r s1 w58 s2 r',# 29 Jun 2022
   '0e7373c2/player_ias.vflset/en_US/base' => '19173 r s3 w23 s3 r',# 30 Jun 2022
+  '132602e8/player_ias.vflset/en_US/base' => '19184 s3 w11 s1 r w12 r w47',# 11 Jul 2022
+  '17327fbd/player_ias.vflset/en_US/base' => '19186 w23 w30 s3 r',# 13 Jul 2022
+  'dfd2e197/player_ias.vflset/en_US/base' => '19187 s3 r w55 s3 r s3 w48 w17 w43',# 14 Jul 2022
+  '9504bca9/player_ias.vflset/en_US/base' => '19191 s3 r w70 w62 w44 s1',# 18 Jul 2022
+  '011af516/player_ias.vflset/en_US/base' => '19193 r w25 r w16 s3 w16 r',# 20 Jul 2022
+  'afeb58ff/player_ias.vflset/en_US/base' => '19194 r w20 w3 s2', # 21 Jul 2022
+  '5784b7e4/player_ias.vflset/en_US/base' => '19198 w66 s2 w11',  # 25 Jul 2022
+  '240bde48/player_ias.vflset/en_US/base' => '19200 s3 w48 r s2 r s3 r',# 27 Jul 2022
+  'c8b8a173/player_ias.vflset/en_US/base' => '19201 w42 s3 w48 r',# 28 Jul 2022
+  '7a7465f5/player_ias.vflset/en_US/base' => '19205 w12 s2 w62',  # 01 Aug 2022
+  '7802ea37/player_ias.vflset/en_US/base' => '19207 s1 r s1 w28', # 03 Aug 2022
+  '2fd212f2/player_ias.vflset/en_US/base' => '19208 w35 r s3 r w45 w42 s3 w18',# 04 Aug 2022
+  '0d77e7db/player_ias.vflset/en_US/base' => '19212 w2 s1 r s3',  # 08 Aug 2022
+  '4c3f79c5/player_ias.vflset/en_US/base' => '19215 s1 w50 s1 r w37 r',# 11 Aug 2022
+  'c81bbb4a/player_ias.vflset/en_US/base' => '19219 w23 r s2 w63 s1 w37 w6 r',# 15 Aug 2022
+  '1f7d5369/player_ias.vflset/en_US/base' => '19221 s2 w51 w36 r s2 r w15 w57',# 17 Aug 2022
+  '009f1d77/player_ias.vflset/en_US/base' => '19222 w53 s1 r s1 w65 w61',# 18 Aug 2022
+  '0c356943/player_ias.vflset/en_US/base' => '19226 r w10 w69 w6 r s3 w27 w47 s3',# 22 Aug 2022
+  'dc0c6770/player_ias.vflset/en_US/base' => '19228 s1 r s2 w64 r w1 s1 w34',# 24 Aug 2022
+  'c2199353/player_ias.vflset/en_US/base' => '19229 w68 r s1 r s2 w31 w21 r w65',# 25 Aug 2022
+  '113ca41c/player_ias.vflset/en_US/base' => '19233 s3 r w23 r s3 r w14 r',# 29 Aug 2022
+  'c57c113c/player_ias.vflset/en_US/base' => '19235 w29 r s1 w30 s2 r s2',# 31 Aug 2022
+  '5a3b6271/player_ias.vflset/en_US/base' => '19236 r s3 r s3',   # 01 Sep 2022
+  'c16db54a/player_ias.vflset/en_US/base' => '19237 r s2 r',      # 02 Sep 2022
+  'a7eb1f5d/player_ias.vflset/en_US/base' => '19240 r w3 w60 r s1 w53 s2 w42 s1',# 05 Sep 2022
+  'f96f6702/player_ias.vflset/en_US/base' => '19242 w30 s1 w26 w11 s2',# 07 Sep 2022
+  '977792fa/player_ias.vflset/en_US/base' => '19243 w23 w36 s2 r s2 r',# 08 Sep 2022
+  '92f199c8/player_ias.vflset/en_US/base' => '19247 r w36 r s2 r s2 r',# 12 Sep 2022
+  'ec3f41f6/player_ias.vflset/en_US/base' => '19249 s3 w38 r w39 w37 r s1 w57',# 14 Sep 2022
+  'a97e97de/player_ias.vflset/en_US/base' => '19250 r s2 w5 r',   # 15 Sep 2022
+  '7577aaa2/player_ias.vflset/en_US/base' => '19254 w63 s1 r',    # 19 Sep 2022
+  '64947e15/player_ias.vflset/en_US/base' => '19256 s1 r s3 r s2 r',# 21 Sep 2022
+  'abfb84fe/player_ias.vflset/en_US/base' => '19257 w38 s3 w11 w34 w57',# 22 Sep 2022
+  'bd1343fa/player_ias.vflset/en_US/base' => '19261 s2 r w65 r s1',# 26 Sep 2022
+  '5248e50a/player_ias.vflset/en_US/base' => '19263 w68 w39 w16 w15 w61 w44',# 28 Sep 2022
+  'a336babc/player_ias.vflset/en_US/base' => '19264 r w44 w7 s2', # 29 Sep 2022
+  '374003a5/player_ias.vflset/en_US/base' => '19268 r s1 w41 r w41 s3 r w51',# 03 Oct 2022
+  '55fdc514/player_ias.vflset/en_US/base' => '19270 w1 r s2 w15 s2',# 05 Oct 2022
+  '17ab0793/player_ias.vflset/en_US/base' => '19271 r w52 w11 w25 w11 r s3 w49 s2',# 06 Oct 2022
+  '7a062b77/player_ias.vflset/en_US/base' => '19275 w19 r s3 w32 w2 w31',# 10 Oct 2022
+  'f11bc515/player_ias.vflset/en_US/base' => '19277 s1 r s1 w33 s1 w47 w44 s3 r',# 12 Oct 2022
+  '1f77e565/player_ias.vflset/en_US/base' => '19278 w48 w43 s2 r s2 w39 w19 s1 r',# 13 Oct 2022
+  'a25d4acf/player_ias.vflset/en_US/base' => '19282 w41 s1 r',    # 17 Oct 2022
+  '24c6f8bd/player_ias.vflset/en_US/base' => '19284 w14 s1 r s3', # 19 Oct 2022
+  '4bbf8bdb/player_ias.vflset/en_US/base' => '19285 r w6 w45 s3', # 20 Oct 2022
+  '64588dad/player_ias.vflset/en_US/base' => '19291 w14 w14 r s2',# 26 Oct 2022
+  '19fc75cf/player_ias.vflset/en_US/base' => '19292 r w52 w34',   # 27 Oct 2022
+  '03bec62d/player_ias.vflset/en_US/base' => '19296 r s1 r w16 s2 r w29 w51',# 31 Oct 2022
+  'c4225c42/player_ias.vflset/en_US/base' => '19303 w60 w56 w43 s3 w55',# 07 Nov 2022
+  'b50b69c9/player_ias.vflset/en_US/base' => '19310 w55 r s2',    # 14 Nov 2022
+  '6870f412/player_ias.vflset/en_US/base' => '19312 w42 s1 w23 r s3 w52 s2',# 16 Nov 2022
+  '041a7965/player_ias.vflset/en_US/base' => '19313 s3 w43 r s1 w33 r',# 17 Nov 2022
+  '4eb6b35d/player_ias.vflset/en_US/base' => '19317 s2 r s3 r s1',# 21 Nov 2022
+  'e87a69df/player_ias.vflset/en_US/base' => '19324 w25 s2 r s1 w26',# 28 Nov 2022
+  'd75422b4/player_ias.vflset/en_US/base' => '19326 w51 w29 r s1 r w12 s3 w51',# 30 Nov 2022
+  'dab28f34/player_ias.vflset/en_US/base' => '19327 r w54 r s2 r w1 r s3 r',# 01 Dec 2022
+  'ac058a09/player_ias.vflset/en_US/base' => '19331 s1 r s1 w69 w17 s3 r w45',# 05 Dec 2022
+  '72d3c60a/player_ias.vflset/en_US/base' => '19333 w60 r w13 r', # 07 Dec 2022
+  'e96685ea/player_ias.vflset/en_US/base' => '19338 w50 s3 w23 r w44',# 12 Dec 2022
+  'a0703e0f/player_ias.vflset/en_US/base' => '19340 w2 s1 r s2 w67 w41 r w46 s2',# 14 Dec 2022
+  '34f9b71c/player_ias.vflset/en_US/base' => '19341 w61 r s2 r w46 s1',# 15 Dec 2022
+  '21149d65/player_ias.vflset/en_US/base' => '19345 w9 s3 r w23 w35 w8 s2 r',# 19 Dec 2022
+  'e5f6cbd5/player_ias.vflset/en_US/base' => '19359 w29 w66 s2 w17',# 02 Jan 2023
+  'd759e46a/player_ias.vflset/en_US/base' => '19366 w43 s1 r',    # 09 Jan 2023
+  '4248d311/player_ias.vflset/en_US/base' => '19369 r s2 r s3',   # 12 Jan 2023
+  'dac945fd/player_ias.vflset/en_US/base' => '19387 w20 s1 r s3 w48 r s2 w54',# 30 Jan 2023
+  '97ea7458/player_ias.vflset/en_US/base' => '19389 s1 w60 r w45 s3 w28 r',# 01 Feb 2023
+  'f565d246/player_ias.vflset/en_US/base' => '19394 s3 w35 w24 s3 w23 r w47 r',# 06 Feb 2023
+  'd405f6b4/player_ias.vflset/en_US/base' => '19401 w51 r s3 r s1',# 13 Feb 2023
+  '1cbba2b4/player_ias.vflset/en_US/base' => '19403 s1 r w38 r s1 w11 s2',# 15 Feb 2023
+  '11e3a4ec/player_ias.vflset/en_US/base' => '19404 w20 w8 w3 w62 w50 r s3 w70 r',# 16 Feb 2023
+  '9419f2ea/player_ias.vflset/en_US/base' => '19412 w36 s2 w6 w60 w22 w15 r',# 24 Feb 2023
+  'a897053d/player_ias.vflset/en_US/base' => '19415 w61 r s3 w53 r w24 r w17 s1',# 27 Feb 2023
+  '7862ca1f/player_ias.vflset/en_US/base' => '19417 w17 s1 r w65',# 01 Mar 2023
+  '21246a91/player_ias.vflset/en_US/base' => '19422 w3 r w23 s2 w38 r w26 w22',# 06 Mar 2023
+  '837bca82/player_ias.vflset/en_US/base' => '19429 s3 w68 w53 s2 r w50',# 13 Mar 2023
+  '59acb1f3/player_ias.vflset/en_US/base' => '19431 r s2 w24',    # 15 Mar 2023
+  'c64a5d56/player_ias.vflset/en_US/base' => '19436 w39 s3 r w23 w36 s3 r w44',# 20 Mar 2023
+  'ace4d669/player_ias.vflset/en_US/base' => '19438 w7 r s1 w68 w53 s3',# 22 Mar 2023
+  '931a8913/player_ias.vflset/en_US/base' => '19443 w56 s2 r w57 w28 r',# 27 Mar 2023
+  'fa7eb95c/player_ias.vflset/en_US/base' => '19445 r w1 w1 w4 w36 r s1',# 29 Mar 2023
+  '7da8dd3e/player_ias.vflset/en_US/base' => '19450 r s2 r w17',  # 03 Apr 2023
 );
 
 
@@ -3765,7 +3847,7 @@ sub youtube_parse_dashmpd($$$$) {
   my @reps = split(/<Representation\b/si, $body2);
   shift @reps;
   foreach my $rep (@reps) {
-    my ($k)    = ($rep =~ m@id=[\'\"](\d+)@si);
+    my ($k)    = ($rep =~ m@id=[\'\"](.+?)[\'\"]@si);
     my ($url)  = ($rep =~ m@<BaseURL\b[^<>]*>([^<>]+)@si);
     my ($type) = ($rep =~ m@\bcodecs="(.*?)"@si);
     my ($w)    = ($rep =~ m@\bwidth="(\d+)"@si);
@@ -3891,6 +3973,10 @@ sub load_youtube_formats_html($$$) {
   }
   $args = '' unless defined $args;
 
+  # Jan 2023: now just contains:
+  # {args:{raw_player_response:window.ytplayer.bootstrapPlayerResponse}};
+  $args = '' if (length($args) < 100);
+
   if (! $args) {
     # Try to find a better error message
     (undef, $err) = ($body =~ m@<( div | h1 ) \s+
@@ -3903,6 +3989,18 @@ sub load_youtube_formats_html($$$) {
     if ($err) {
       $err =~ s@^.*="yt-uix-button-content"[^<>]*>([^<>]+).*@$1@si;
       $err =~ s/<[^<>]*>//gs;
+    }
+
+    # Jan 2023: "playabilityStatus":{"status":"LOGIN_REQUIRED",
+    #           "reason":"Sign in to confirm your age", ... 
+    if (!$err) {
+      my ($p) = ($body =~ m@"playabilityStatus":(.*?)\}@si);
+      if ($p &&
+          $p !~ m/"status":"OK"/si &&
+          ($p =~ m/"reason":"(.*?)"/si ||
+           $p =~ m/"messages":\["(.*?)"/si)) {
+        $err = $1;
+      }
     }
 
     $err = "Rate limited: CAPCHA required"
@@ -4305,8 +4403,11 @@ sub load_youtube_formats($$$) {
 
   my $both = ($err1 || '') . ' ' . ($err2 || '');
   $err = 'age-restricted video is not embeddable'
-    if ($both =~ m/content warning/si &&
-        $both =~ m/not embeddable/si);
+    if (($both =~ m/content warning/si &&
+         $both =~ m/not embeddable/si) ||
+        $both =~ m/confirm your age/si);
+  $err = 'private video'
+    if ($both =~ m/private video/si);
 
   # It's rare, but there can be only one format available.
   # Keys: 18, cipher, title.
@@ -5023,6 +5124,13 @@ sub pick_download_format($$$$$$) {
    598 => { v => 'webm', w =>  256, h =>  144, a => undef               },
    599 => { v => undef,                        a => 'aac',  abr =>  30  },
    600 => { v => undef,                        a => 'opus', abr =>  35  },
+   694 => { v => 'av1',  w =>  256, h =>  144, a => undef               },
+   695 => { v => 'av1',  w =>  426, h =>  240, a => undef               },
+   696 => { v => 'av1',  w =>  640, h =>  360, a => undef               },
+   697 => { v => 'av1',  w =>  854, h =>  480, a => undef               },
+   698 => { v => 'av1',  w => 1280, h =>  720, a => undef               },
+   699 => { v => 'av1',  w => 1920, h => 1080, a => undef               },
+   'rawcc' => { },
   );
   #
   # The table on https://en.wikipedia.org/wiki/YouTube#Quality_and_formats
@@ -5197,6 +5305,9 @@ sub pick_download_format($$$$$$) {
   #   https://www.youtube.com/watch?v=-s0kuc-C4AI
   #   https://www.youtube.com/watch?v=qp9_L3E8yiM
   #   19-Dec-2020: HTML has ytInitialPlayerResponse but no adaptive_fmts, etc.
+  #
+  #   https://www.youtube.com/watch?v=pbRVqWbHGuo
+  #   21-Jul-2022: saw first non-integer format 'rawcc'
 
   # Divide %known_formats into muxed, video-only and audio-only lists.
   #
@@ -6403,6 +6514,7 @@ sub download_video_url($$$$$$$$$$$$) {
   }
 
   foreach my $target (@targets) {
+    error ("$id: no target") unless defined($target);
     my $fmt   = $fmts->{$target};
     my $ct    = $fmt->{content_type};
     my $w     = $fmt->{width};
