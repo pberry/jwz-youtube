@@ -72,7 +72,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1946 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1956 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -3155,6 +3155,16 @@ my %ciphers = (
   '931a8913/player_ias.vflset/en_US/base' => '19443 w56 s2 r w57 w28 r',# 27 Mar 2023
   'fa7eb95c/player_ias.vflset/en_US/base' => '19445 r w1 w1 w4 w36 r s1',# 29 Mar 2023
   '7da8dd3e/player_ias.vflset/en_US/base' => '19450 r s2 r w17',  # 03 Apr 2023
+  '248ded94/player_ias.vflset/en_US/base' => '19457 w9 s1 r s3 r',# 10 Apr 2023
+  '36754c51/player_ias.vflset/en_US/base' => '19459 w19 w16 r s1 r s2 r',# 12 Apr 2023
+  '6f20102c/player_ias.vflset/en_US/base' => '19464 w45 w53 r s2 w27',# 17 Apr 2023
+  'd87d581f/player_ias.vflset/en_US/base' => '19466 s1 r s3 r w63 r w14 r',# 19 Apr 2023
+  '73d31b49/player_ias.vflset/en_US/base' => '19471 r s2 w41 w52 r w17 r w70 r',# 24 Apr 2023
+  '0c487f05/player_ias.vflset/en_US/base' => '19473 r s1 r w47 s1',# 26 Apr 2023
+  'c353919c/player_ias.vflset/en_US/base' => '19478 w23 r s1',    # 01 May 2023
+  '50cf60f0/player_ias.vflset/en_US/base' => '19480 w38 r w46 s3 r s1 r s3',# 03 May 2023
+  '65ceadf9/player_ias.vflset/en_US/base' => '19485 w4 r s2 r w19 s2 r s2 w41',# 08 May 2023
+  'cfa9e7cb/player_ias.vflset/en_US/base' => '19487 w59 w2 s1 w16 w18 s2 r',# 10 May 2023
 );
 
 
