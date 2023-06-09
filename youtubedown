@@ -72,7 +72,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1960 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1964 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -478,8 +478,9 @@ sub sock_open($) {
 }
 
 
-sub build_http_req($$$$$$) {
-  my ($host, $path, $referer, $start_byte, $max_bytes, $extra_headers) = @_;
+sub build_http_req($$$$$$$) {
+  my ($host, $path, $referer, $start_byte, $max_bytes, $extra_headers,
+      $post_data) = @_;
 
   my $user_agent = "$progname/$version";
 
@@ -488,7 +489,7 @@ sub build_http_req($$$$$$) {
   # (You'd think this should be HTTP/1.1 since we are using keep-alive,
   # but that breaks things for some reason.)
   #
-  my $hdrs = ("GET $path HTTP/1.0\r\n" .
+  my $hdrs = (($post_data ? 'POST' : 'GET') . " $path HTTP/1.0\r\n" .
               "Host: $host\r\n" .
               "User-Agent: $user_agent\r\n");
 
@@ -514,7 +515,14 @@ sub build_http_req($$$$$$) {
   }
 
   $hdrs .= join ("\r\n", @extra_headers, '') if (@extra_headers);
-  $hdrs .= "\r\n";
+
+  if ($post_data) {
+    $hdrs .= ('Content-Length: ' . length($post_data) . "\r\n" .
+              "\r\n" .
+              $post_data);
+  } else {
+    $hdrs .= "\r\n";
+  }
 
   if ($verbose > 3) {
     print STDERR "\n";
@@ -622,9 +630,9 @@ sub bwlimit_throttle($$$$) {
 # the parallel-load thing for short documents that are loaded directly
 # into memory (like HTML pages).
 #
-sub get_url_1($;$$$$$$$$) {
+sub get_url_1($;$$$$$$$$$) {
   my ($url, $referer, $to_file, $bwlimit, $start_byte, $max_bytes,
-      $append_p, $progress_p, $extra_headers) = @_;
+      $append_p, $progress_p, $extra_headers, $post_data) = @_;
 
   if ($to_file &&
       $to_file ne '-' &&
@@ -634,7 +642,7 @@ sub get_url_1($;$$$$$$$$) {
     # This is a direct write to a file, so we can use parallel loads.
     return get_url_1_parallel ($url, $referer, $to_file, $bwlimit,
                                $start_byte, $max_bytes, $append_p,
-                               $progress_p, $extra_headers);
+                               $progress_p, $extra_headers, $post_data);
   }
 
   my ($proto, $host, $port, $path) = url_split ($url);
@@ -644,7 +652,8 @@ sub get_url_1($;$$$$$$$$) {
   my $ohost = $host;
 
   my $hdrs = build_http_req ($ohost, $path, $referer,
-                             $start_byte, $max_bytes, $extra_headers);
+                             $start_byte, $max_bytes, $extra_headers,
+                             $post_data);
   syswrite ($S, $hdrs) ||
     error ('syswrite: ' . ($! || 'I/O error') . ": $host");
 
@@ -891,9 +900,10 @@ sub get_url_1($;$$$$$$$$) {
 # Loads the given URL, processes redirects; retries dropped connections.
 # Returns: $http, $head, $body, $final_redirected_url.
 #
-sub get_url($;$$$$$$$$) {
+sub get_url($;$$$$$$$$$) {
   my ($url, $referer, $to_file, $bwlimit, $max_bytes, 
-      $append_p, $progress_p, $force_ranges_p, $extra_headers) = @_;
+      $append_p, $progress_p, $force_ranges_p, $extra_headers,
+      $post_data) = @_;
 
   my $orig_url       = $url;
   my $redirect_count = 0;
@@ -938,7 +948,7 @@ sub get_url($;$$$$$$$$) {
     my ($http, $head, $body, $bytes, $cl, $cl2) =
       get_url_1 ($url, $referer, $to_file, $bwlimit,
                  $start_byte, $max_bytes_2,
-                 $append_p, $progress_p, $extra_headers);
+                 $append_p, $progress_p, $extra_headers, $post_data);
 
     $total_bytes += $bytes;
     $max_bytes -= $bytes if defined($max_bytes);
@@ -1019,6 +1029,15 @@ sub get_url($;$$$$$$$$) {
 }
 
 
+sub post_url($$;$$$$$$$$) {
+  my ($url, $post_data, $referer, $to_file, $bwlimit, $max_bytes, 
+      $append_p, $progress_p, $force_ranges_p, $extra_headers) = @_;
+  return get_url ($url, $referer, $to_file, $bwlimit, $max_bytes, 
+                  $append_p, $progress_p, $force_ranges_p, $extra_headers,
+                  $post_data);
+}
+
+
 sub get_url_hdrs($$) {
   my ($url, $hdrs) = @_;
   return get_url ($url, undef,   # $referer
@@ -1078,8 +1097,9 @@ sub qurl_make($$$$$$) {
 
 # Open the connection and send the GET request.
 #
-sub qurl_get($;$$$$) {
-  my ($qurl, $referer, $start_byte, $max_bytes, $extra_headers) = @_;
+sub qurl_get($;$$$$$) {
+  my ($qurl, $referer, $start_byte, $max_bytes, $extra_headers,
+      $post_data) = @_;
 
   my $user_agent = "$progname/$version";
 
@@ -1090,7 +1110,8 @@ sub qurl_get($;$$$$) {
   }
 
   my $hdrs = build_http_req ($qurl->{host}, $qurl->{path}, $referer,
-                             $start_byte, $max_bytes, $extra_headers);
+                             $start_byte, $max_bytes, $extra_headers,
+                             $post_data);
   syswrite ($qurl->{read_sock}, $hdrs) ||
     error ('syswrite: ' . ($! || 'I/O error') . ": " . $qurl->{host});
 }
@@ -1223,9 +1244,9 @@ sub qurl_read_chunk($) {
 }
 
 
-sub get_url_1_parallel($;$$$$$$$$) {
+sub get_url_1_parallel($;$$$$$$$$$) {
   my ($url, $referer, $to_file, $bwlimit, $start_byte, $max_bytes,
-      $append_p, $progress_p, $extra_headers) = @_;
+      $append_p, $progress_p, $extra_headers, $post_data) = @_;
 
   my $start_time = time();
   my $actual_bits_per_sec = 0;
@@ -1239,7 +1260,8 @@ sub get_url_1_parallel($;$$$$$$$$) {
   # Open the connection and send a GET, for the full range.
   # This is how we learn the size of the full document.
   my $qurl0 = qurl_make ($url, 0, $start_byte, $max_bytes, $bwlimit, $to_file);
-  qurl_get ($qurl0, $referer, $start_byte, $max_bytes, $extra_headers);
+  qurl_get ($qurl0, $referer, $start_byte, $max_bytes, $extra_headers,
+            $post_data);
 
   # Read from the URL until we have gotten the full header response.
   # We may also have ended up reading part of the document body.
@@ -1323,7 +1345,7 @@ sub get_url_1_parallel($;$$$$$$$$) {
            @running_queue < $max_workers) {
       my $qurl = shift @pending_queue;
       qurl_get ($qurl, $referer, $qurl->{start_byte}, $qurl->{max_bytes},
-                $extra_headers);
+                $extra_headers, $post_data);
       push @running_queue, $qurl;
     }
 
@@ -2774,393 +2796,393 @@ my %ciphers = (
 # 'player_ias-vflwruZYD/en_US/base' => '18282 s2 r w36',          # 21 Jan 2020
 # 'player_ias-vfl7lL1_p/en_US/base' => '18284 w8 r s2 r s1 r w59 s2',# 23 Jan 2020
 # 'player_ias-vfl1GpCbm/en_US/base' => '18290 w46 r s2 r',        # 29 Jan 2020
-  'player_ias-vflbwmoEe/en_US/base' => '18295 r w51 r s2 w39 r w6 w58',# 03 Feb 2020
-  'player_ias-vflZgL1a2/en_US/base' => '18298 s3 r s2 r w67 w11', # 06 Feb 2020
-  'player_ias-vflrgVy3r/en_US/base' => '18302 r w53 w5',          # 10 Feb 2020
-  'player_ias-vfla5PwTn/en_US/base' => '18302 r w53 w5',          # 10 Feb 2020
-  'player_ias-vfl5eNx6Z/en_US/base' => '18304 s2 r w9 w53 r w52 w68 r',# 12 Feb 2020
-  'player_ias-vflT0MlXN/en_US/base' => '18305 w8 r w57 w44 s1 w53 r',# 13 Feb 2020
-  'player_ias-vflp5fPn0/en_US/base' => '18305 w8 r w57 w44 s1 w53 r',# 13 Feb 2020
-  'player_ias-vfl3Rvzpw/en_US/base' => '18311 w26 r w18 s1 r s2 r w37 s1',# 19 Feb 2020
-  'player_ias-vfl5Kte8U/en_US/base' => '18317 w30 w63 w15 s3 r w50 s3 r w58',# 25 Feb 2020
-  'player_ias-vflMJC6WU/en_US/base' => '18323 r s3 w58 r s3 r w16 r w20',# 02 Mar 2020
-  'player_ias-vfl1Ng2HU/en_US/base' => '18324 w34 s1 w69 s3 r s2 w53',# 03 Mar 2020
-  'player_ias-vfle4a9aa/en_US/base' => '18324 w34 s1 w69 s3 r s2 w53',# 03 Mar 2020
-  'player_ias-vfl5C38RC/en_US/base' => '18325 w50 s3 w33 r s2 w6 r w16 r',# 04 Mar 2020
-  'player_ias-vflQm4drh/en_US/base' => '18330 s1 w21 r w34 w18 w63',# 09 Mar 2020
-  'player_ias-vflQJ_oH3/en_US/base' => '18332 w61 r s2',          # 11 Mar 2020
-  'player_ias-vflJMXyvH/en_US/base' => '18337 w29 w41 s2 w23 s2 r s2',# 17 Mar 2020
-  'player_ias-vflSBTliv/en_US/base' => '18338 w15 s1 w43 s3 r s3',# 17 Mar 2020
-  'player_ias-vflEO2H8R/en_US/base' => '18340 s3 w28 r s3',       # 19 Mar 2020
-  'player_ias-vfl2Bfj4C/en_US/base' => '18341 w70 s1 w62 r w69 r s1',# 20 Mar 2020
-  'player_ias-vflJalPc2/en_US/base' => '18344 r w23 w65 w53',     # 23 Mar 2020
-  'player_ias-vfl_gAQka/en_US/base' => '18351 w45 s1 w52 r w36 r w2',# 30 Mar 2020
-  'player_ias-vfluKIiVl/en_US/base' => '18352 r w67 w37 s2 w59',  # 31 Mar 2020
-  'player_ias-vflBAN1y0/en_US/base' => '18352 r w67 w37 s2 w59',  # 31 Mar 2020
-  'player_ias-vfl5cScu9/en_US/base' => '18353 r s3 r',            # 01 Apr 2020
-  'player_ias-vfl6MUxK7/en_US/base' => '18354 w35 r w42 w11 w48 s3 w70 s1',# 02 Apr 2020
-  'player_ias-vfl_CsZz6/en_US/base' => '18356 w22 w17 s2 r s1 w8',# 04 Apr 2020
-  'player_ias-vfl6VLxLZ/en_US/base' => '18359 s3 w39 s2 w1 s1 w35 w51 s2 r',# 07 Apr 2020
-  '4fbb4d5b/player_ias.vflset/en_US/base' => '18359 s3 w39 s2 w1 s1 w35 w51 s2 r',# 07 Apr 2020
-  '5478d871/player_ias.vflset/en_US/base' => '18366 w38 w7 s2',   # 14 Apr 2020
-  'f676c671/player_ias.vflset/en_US/base' => '18368 s2 w4 w46 s2 w34 w59 r',# 16 Apr 2020
-  'bfb2a3b4/player_ias.vflset/en_US/base' => '18372 s3 w21 r s3 r w36',# 20 Apr 2020
-  '45e4d51d/player_ias.vflset/en_US/base' => '18375 w17 w16 r w25 r w50 w35',# 23 Apr 2020
-  '0374edcb/player_ias.vflset/en_US/base' => '18379 w8 w43 w10 w34',# 27 Apr 2020
-  '64dddad9/player_ias.vflset/en_US/base' => '18382 r w69 r w40', # 30 Apr 2020
-  '52b1e972/player_ias.vflset/en_US/base' => '18386 w25 w47 r s1 w47',# 04 May 2020
-  '0acb4375/player_ias.vflset/en_US/base' => '18389 r s1 w23 s3 w51',# 07 May 2020
-  '376e3c34/player_ias.vflset/en_US/base' => '18394 r s3 w26',    # 12 May 2020
-  '70f6ca87/player_ias.vflset/en_US/base' => '18395 w24 w13 w22 w23 s1 w44 r w15',# 13 May 2020
-  'c31ba6fc/player_ias.vflset/en_US/base' => '18396 s3 w35 r w7', # 14 May 2020
-  'e3cd195e/player_ias.vflset/en_US/base' => '18400 r w5 w20 r s2 w52 r w66 r',# 18 May 2020
-  '85548937/player_ias.vflset/en_US/base' => '18403 s2 r s3 w14 w68 r w49 w30 w69',# 21 May 2020
-  '4583e272/player_ias.vflset/en_US/base' => '18407 w27 s1 r s2 r w43',# 25 May 2020
-  'de455b1a/player_ias.vflset/en_US/base' => '18410 w11 w70 w8 w40',# 28 May 2020
-  'c31b936c/player_ias.vflset/en_US/base' => '18414 w23 w59 s3 w33 w49 s3 r',# 01 Jun 2020
-  '39dd62a0/player_ias.vflset/en_US/base' => '18417 w11 w29 s3 w69 r s2 r',# 05 Jun 2020
-  '16a691a1/player_ias.vflset/en_US/base' => '18421 r s3 w1 w67 s2 w8',# 08 Jun 2020
-  '0c5285fd/player_ias.vflset/en_US/base' => '18428 s1 r w18 w59',# 15 Jun 2020
-  '1d33781a/player_ias.vflset/en_US/base' => '18432 r s1 r w28',  # 19 Jun 2020
-  '5cc7c83f/player_ias.vflset/en_US/base' => '18435 s1 w29 r s3 w41 s2 w27 r',# 22 Jun 2020
-  '68f00b39/player_ias.vflset/en_US/base' => '18438 r w15 s1 r w11 s2',# 25 Jun 2020
-  '02c092a5/player_ias.vflset/en_US/base' => '18442 s2 r s1 r w37 s3',# 29 Jun 2020
-  '54668ca9/player_ias.vflset/en_US/base' => '18444 r w43 r s3 r',# 01 Jul 2020
-  '3662280c/player_ias.vflset/en_US/base' => '18449 s2 r w70',    # 06 Jul 2020
-  '5253ac4d/player_ias.vflset/en_US/base' => '18456 r s3 r w70',  # 13 Jul 2020
-  '8786a07b/player_ias.vflset/en_US/base' => '18463 r s2 r w29 r s1 r s3',# 20 Jul 2020
-  '0bb3b162/player_ias.vflset/en_US/base' => '18466 w39 r w20',   # 23 Jul 2020
-  'c718385a/player_ias.vflset/en_US/base' => '18473 w23 r w63 r s1 r',# 30 Jul 2020
-  'e49bfb00/player_ias.vflset/en_US/base' => '18477 w4 r w15 s3 w24 w4 r w24',# 03 Aug 2020
-  'c0a91787/player_ias.vflset/en_US/base' => '18480 w14 w61 s2 w28 w27 s3 w1 w20',# 06 Aug 2020
-  '0a90460f/player_ias.vflset/en_US/base' => '18484 s1 r s1 w47', # 10 Aug 2020
-  '0c815aae/player_ias.vflset/en_US/base' => '18487 w29 r w61 s2 w32 s3 w34',# 13 Aug 2020
-  'cba0baa7/player_ias.vflset/en_US/base' => '18491 w27 w46 w22 r w46 s2 r w21',# 17 Aug 2020
-  '530216c1/player_ias.vflset/en_US/base' => '18494 r s3 r w43',  # 20 Aug 2020
-  'eecb0f1e/player_ias.vflset/en_US/base' => '18498 w20 w11 s3 r w27 r s2 r s2',# 24 Aug 2020
-  '54d6fa95/player_ias.vflset/en_US/base' => '18501 s1 w39 s3',   # 27 Aug 2020
-  '86f77974/player_ias.vflset/en_US/base' => '18505 r w69 r w20 r w32 s3',# 31 Aug 2020
-  'bcf2977e/player_ias.vflset/en_US/base' => '18508 s2 w28 w46 r s1',# 03 Sep 2020
-  '8c24a503/player_ias.vflset/en_US/base' => '18508 s2 w28 w46 r s1',# 04 Sep 2020
-  '134332d3/player_ias.vflset/en_US/base' => '18516 s3 r w1 w3 w51 r',# 11 Sep 2020
-  'e0d83c30/player_ias.vflset/en_US/base' => '18519 w32 r s1 r s3 r w28 s1',# 14 Sep 2020
-  '4b1ba5ea/player_ias.vflset/en_US/base' => '18523 s3 w21 r s1 w27 w54 r s3',# 18 Sep 2020
-  '9ce2f25a/player_ias.vflset/en_US/base' => '18526 r s2 r w51 s1 r',# 21 Sep 2020
-  '12237e3d/player_ias.vflset/en_US/base' => '18529 s1 r s2',     # 24 Sep 2020
-  '4c375770/player_ias.vflset/en_US/base' => '18536 s3 w41 s3 w3 s3 r',# 01 Oct 2020
-  '1a1b48e5/player_ias.vflset/en_US/base' => '18540 s1 w45 r s3 r s1 w50 s1 r',# 05 Oct 2020
-  '3c37ed48/player_ias.vflset/en_US/base' => '18547 r w15 r',     # 12 Oct 2020
-  '00510e67/player_ias.vflset/en_US/base' => '18550 w62 r s1 w45 r s2 r',# 15 Oct 2020
-  '5799986b/player_ias.vflset/en_US/base' => '18554 w29 r w38 r', # 19 Oct 2020
-  '4a1799bd/player_ias.vflset/en_US/base' => '18557 s2 w30 r',    # 22 Oct 2020
-  '9b65e980/player_ias.vflset/en_US/base' => '18561 r s3 w51 s2', # 26 Oct 2020
-  'ec262be6/player_ias.vflset/en_US/base' => '18564 w67 s1 w49 s3 w52 r s1 w43 r',# 29 Oct 2020
-  'c926146c/player_ias.vflset/en_US/base' => '18568 s1 w50 r s3 w34 r',# 02 Nov 2020
-  '16e41f55/player_ias.vflset/en_US/base' => '18571 w64 w1 w25 w70 r s2',# 05 Nov 2020
-  'ac4b0b03/player_ias.vflset/en_US/base' => '18575 w69 r s2 w56 s1 r s3 r',# 09 Nov 2020
-  'c299662f/player_ias.vflset/en_US/base' => '18578 r s2 w65 s2 r s3 r w2',# 12 Nov 2020
-  'a3726513/player_ias.vflset/en_US/base' => '18582 r w10 r s1 w13 s2 w15',# 16 Nov 2020
-  '8b85eac2/player_ias.vflset/en_US/base' => '18585 w62 r s1 w67',# 19 Nov 2020
-  '77da52cd/player_ias.vflset/en_US/base' => '18590 s3 r w69 s2 w41',# 24 Nov 2020
-  '408be03a/player_ias.vflset/en_US/base' => '18596 w26 w1 r s2 r',# 30 Nov 2020
-  '6dde7fb4/player_ias.vflset/en_US/base' => '18604 r s3 w54 s3 r s1',# 08 Dec 2020
-  '03226028/player_ias.vflset/en_US/base' => '18606 s2 w62 r',    # 10 Dec 2020
-  '62f90c99/player_ias.vflset/en_US/base' => '18610 w49 s3 w10 s1',# 14 Dec 2020
-  'c88a8657/player_ias.vflset/en_US/base' => '18612 r s1 r w18 s3 w36 r w32 s3',# 16 Dec 2020
-  '2e6e57d8/player_ias.vflset/en_US/base' => '18613 w9 w4 r w54 r',# 17 Dec 2020
-  '5dd3f3b2/player_ias.vflset/en_US/base' => '18617 r w13 s3 r w69 s2 w58 r s1',# 21 Dec 2020
-  '9f996d3e/player_ias.vflset/en_US/base' => '18634 s2 r s2 w1 w8',# 07 Jan 2021
-  'bfb74eaf/player_ias.vflset/en_US/base' => '18645 s2 r w29',    # 18 Jan 2021
-  '27cea338/player_ias.vflset/en_US/base' => '18652 w35 s2 w8 r w51',# 25 Jan 2021
-  'c6df6ed7/player_ias.vflset/en_US/base' => '18653 w35 s3 r w44 s1',# 26 Jan 2021
-  '7bc032d0/player_ias.vflset/en_US/base' => '18655 r w56 w14 w9 r w30 r s3',# 28 Jan 2021
-  'f6ef8aad/player_ias.vflset/en_US/base' => '18659 s1 w34 s2 r w64 s1 w55 r s3',# 01 Feb 2021
-  '4bc55fd6/player_ias.vflset/en_US/base' => '18660 s2 r s1',     # 02 Feb 2021
-  '0e3144b6/player_ias.vflset/en_US/base' => '18662 r s1 r w10 r s3 w68 s3 w58',# 04 Feb 2021
-  '31234943/player_ias.vflset/en_US/base' => '18667 s2 r s1 r s3 r s2 r w66',# 09 Feb 2021
-  '0ce056a2/player_ias.vflset/en_US/base' => '18668 w55 w55 s2 r',# 10 Feb 2021
-  '490079fb/player_ias.vflset/en_US/base' => '18669 r s1 r s3 r w61 w60',# 11 Feb 2021
-  '6eebf7aa/player_ias.vflset/en_US/base' => '18673 w2 s2 w24',   # 15 Feb 2021
-  '1c732901/player_ias.vflset/en_US/base' => '18676 r s3 w37 s3', # 18 Feb 2021
-  '5a096a9f/player_ias.vflset/en_US/base' => '18680 w17 r s3 w12 s1 r w47 r',# 22 Feb 2021
-  '392133a3/player_ias.vflset/en_US/base' => '18681 r s2 r w48 s1 w15 r',# 23 Feb 2021
-  '4fe52f49/player_ias.vflset/en_US/base' => '18683 w20 s2 w13 r s3',# 25 Feb 2021
-  '0d54190b/player_ias.vflset/en_US/base' => '18688 w18 r s1 w17 r w60 r s3 w39',# 02 Mar 2021
-  'a09205f7/player_ias.vflset/en_US/base' => '18690 w33 r s1 r s1 r s2',# 04 Mar 2021
-  'd91669a4/player_ias.vflset/en_US/base' => '18694 s2 r s1 w54 w14 w12 s3',# 08 Mar 2021
-  '34a43f74/player_ias.vflset/en_US/base' => '18695 r w27 r s1 r w4 r w41 w41',# 09 Mar 2021
-  'd29f3109/player_ias.vflset/en_US/base' => '18697 r w2 w25 r w21 s3 w35 s2 w70',# 11 Mar 2021
-  'b2e56c01/player_ias.vflset/en_US/base' => '18701 w18 w37 w29 w21 s2 r w29 s2 r',# 15 Mar 2021
-  '223a7479/player_ias.vflset/en_US/base' => '18702 s3 w54 w21 w23 w57 w2 r w22',# 16 Mar 2021
-  '228f3ac7/player_ias.vflset/en_US/base' => '18708 s3 w54 r w39 r',# 22 Mar 2021
-  '38c5f870/player_ias.vflset/en_US/base' => '18709 w51 r s3 w11 r s2 r',# 23 Mar 2021
-  '9f1ab255/player_ias.vflset/en_US/base' => '18716 r s2 r w68 w66 r',# 30 Mar 2021
-  '4ad4b014/player_ias.vflset/en_US/base' => '18717 s3 w63 w20 s1 r w44 s1',# 31 Mar 2021
-  '3a4ee0a9/player_ias.vflset/en_US/base' => '18718 w9 w21 s3 r s3 w46 w67 r w15',# 01 Apr 2021
-  '1c20fac3/player_ias.vflset/en_US/base' => '18722 w25 r s1 r s3 w65 w32 s1 r',# 05 Apr 2021
-  '1d7f16b4/player_ias.vflset/en_US/base' => '18723 r w27 s3 w23 r w56 w46 r s1',# 06 Apr 2021
-  'd2ff46c3/player_ias.vflset/en_US/base' => '18725 w19 s2 w2 w24',# 08 Apr 2021
-  '2cea24bf/player_ias.vflset/en_US/base' => '18729 s1 w69 w1 w18 r w2',# 12 Apr 2021
-  '82e684c7/player_ias.vflset/en_US/base' => '18730 s2 w9 r s3 r w53 r',# 13 Apr 2021
-  'e0d06a61/player_ias.vflset/en_US/base' => '18732 s3 r s3 r s2 w4 w41 w41 r',# 15 Apr 2021
-  'ba95ea16/player_ias.vflset/en_US/base' => '18736 w68 r w24 r s3 w67 s2 w16',# 19 Apr 2021
-  'ae5b2092/player_ias.vflset/en_US/base' => '18737 w54 r w13 w7 w27 w19 w13',# 20 Apr 2021
-  'fa244a41/player_ias.vflset/en_US/base' => '18739 s2 r s3 r w54 w51 r',# 22 Apr 2021
-  'cb5bd7e6/player_ias.vflset/en_US/base' => '18744 s2 w5 r s1 r w41 s3',# 27 Apr 2021
-  '901932ee/player_ias.vflset/en_US/base' => '18746 s1 w26 w38 s3 r w53 w35 w24 s2',# 29 Apr 2021
-  'bce81a70/player_ias.vflset/en_US/base' => '18747 w50 w48 w23 w31',# 30 Apr 2021
-  '3e7e4b43/player_ias.vflset/en_US/base' => '18750 s2 w47 s1 r s2 w4 r w15 w40',# 03 May 2021
-  'bffc6f9f/player_ias.vflset/en_US/base' => '18751 s3 w7 w50 r s2 r w38',# 04 May 2021
-  '838cc154/player_ias.vflset/en_US/base' => '18753 w41 s3 r s2 r w62 s3 w69 s2',# 06 May 2021
-  '8fd60c09/player_ias.vflset/en_US/base' => '18758 s2 w18 s2 w50 s1 w44 w54 r',# 11 May 2021
-  '24fb4fc5/player_ias.vflset/en_US/base' => '18758 s2 w18 s2 w50 s1 w44 w54 r',# 11 May 2021
-  'b2ff0586/player_ias.vflset/en_US/base' => '18760 s2 w45 w38 s2 r s2',# 13 May 2021
-  '08244190/player_ias.vflset/en_US/base' => '18764 w46 r s3',    # 17 May 2021
-  'fba90263/player_ias.vflset/en_US/base' => '18766 s2 r s3',     # 19 May 2021
-  '3d0175c7/player_ias.vflset/en_US/base' => '18767 w68 s1 r',    # 20 May 2021
-  'c39bcc11/player_ias.vflset/en_US/base' => '18768 r s1 w6 s3 w34 r s1 w37',# 21 May 2021
-  '8523e85c/player_ias.vflset/en_US/base' => '18771 w16 r s3 r w49 w50 w67 w22',# 24 May 2021
-  'e467278e/player_ias.vflset/en_US/base' => '18772 s3 r s1 r w59 s2 w15 r w21',# 25 May 2021
-  '0b643cd1/player_ias.vflset/en_US/base' => '18774 w57 r w13 r s1 w40 s1 w19',# 27 May 2021
-  '5d68a2c6/player_ias.vflset/en_US/base' => '18778 s3 w5 w46 s1 r s3 w20',# 31 May 2021
-  '5d56cf74/player_ias.vflset/en_US/base' => '18781 w65 r w38 r s2',# 04 Jun 2021
-  '00fe505f/player_ias.vflset/en_US/base' => '18785 w36 s3 r',    # 07 Jun 2021
-  '68cc98b3/player_ias.vflset/en_US/base' => '18786 r s2 r s3 r s3 w34 s2',# 08 Jun 2021
-  '1fe59655/player_ias.vflset/en_US/base' => '18786 r s2 r s3 r s3 w34 s2',# 08 Jun 2021
-  'a0094ae9/player_ias.vflset/en_US/base' => '18788 r w47 r s1',  # 10 Jun 2021
-  'a7cbbf24/player_ias.vflset/en_US/base' => '18788 r w47 r s1',  # 10 Jun 2021
-  '2a6f5e06/player_ias.vflset/en_US/base' => '18792 w5 r s1 w62 s1 r w48 w36 s1',# 14 Jun 2021
-  '997fe684/player_ias.vflset/en_US/base' => '18793 w24 s2 w43 w36 s3 r s3 r w32',# 15 Jun 2021
-  'da9443d1/player_ias.vflset/en_US/base' => '18795 w49 w26 r w62 r s2',# 17 Jun 2021
-  '2fa3f946/player_ias.vflset/en_US/base' => '18799 w70 r w64 r w70 r w61',# 21 Jun 2021
-  'b4c937ab/player_ias.vflset/en_US/base' => '18801 r w45 w32',   # 23 Jun 2021
-  '11aba956/player_ias.vflset/en_US/base' => '18802 r w15 s3 w17',# 24 Jun 2021
-  '1a0ca43b/player_ias.vflset/en_US/base' => '18806 w3 r s2',     # 28 Jun 2021
-  '7acefd5d/player_ias.vflset/en_US/base' => '18808 w52 r s1',    # 30 Jun 2021
-  '1eb201ea/player_ias.vflset/en_US/base' => '18815 r s2 r w6 s3 w28',# 07 Jul 2021
-  '51ff6aac/player_ias.vflset/en_US/base' => '18816 s3 r s3 w24 s2 w53',# 08 Jul 2021
-  'e5748921/player_ias.vflset/en_US/base' => '18820 r w18 r w44 w43 s3',# 12 Jul 2021
-  'bec4196e/player_ias.vflset/en_US/base' => '18822 w31 s3 w11 w53 s3 w7',# 14 Jul 2021
-  '7ba2b998/player_ias.vflset/en_US/base' => '18823 s1 w28 w14 r w6 s2 r',# 15 Jul 2021
-  '375e32fd/player_ias.vflset/en_US/base' => '18827 w66 s3 w55 w29 r w27 r',# 19 Jul 2021
-  '3804dce2/player_ias.vflset/en_US/base' => '18829 w41 s3 w44 s1',# 21 Jul 2021
-  '408a20d8/player_ias.vflset/en_US/base' => '18830 w58 s3 w64 s2 r w41 r w25 s3',# 22 Jul 2021
-  '02486e7d/player_ias.vflset/en_US/base' => '18834 w60 r w24 w13',# 26 Jul 2021
-  '4aeb5fe3/player_ias.vflset/en_US/base' => '18836 s3 w63 r w31',# 28 Jul 2021
-  '3c3086a1/player_ias.vflset/en_US/base' => '18837 w23 r w49 w39 s2',# 29 Jul 2021
-  '2840754e/player_ias.vflset/en_US/base' => '18841 w43 r w36 w50 s3 w5 r w47 r',# 02 Aug 2021
-  '850eb2bc/player_ias.vflset/en_US/base' => '18843 s2 r s1',     # 04 Aug 2021
-  'be9c9f3b/player_ias.vflset/en_US/base' => '18844 w24 w30 s2 w57 w41 w70 w34 s1',# 05 Aug 2021
-  '4224c673/player_ias.vflset/en_US/base' => '18848 w48 r s3 r s3 r w58 r',# 09 Aug 2021
-  'a081deec/player_ias.vflset/en_US/base' => '18850 s3 w4 w35 s3 w63 s2 r w51 s3',# 11 Aug 2021
-  '50e823fc/player_ias.vflset/en_US/base' => '18851 r w43 w37 r s1 w60 r w39',# 12 Aug 2021
-  '28f65009/player_ias.vflset/en_US/base' => '18857 s3 r s3',     # 18 Aug 2021
-  'b555ee94/player_ias.vflset/en_US/base' => '18858 w51 s3 w28 w29 w3 w47 r w1',# 19 Aug 2021
-  '31389f53/player_ias.vflset/en_US/base' => '18862 w39 r w41',   # 23 Aug 2021
-  'ee7f98d9/player_ias.vflset/en_US/base' => '18864 s3 w4 s2 r s1 w37 s3',# 25 Aug 2021
-  '528656c7/player_ias.vflset/en_US/base' => '18865 r s2 w64 r w68 s3 w56 w49 s3',# 26 Aug 2021
-  'c29c59cf/player_ias.vflset/en_US/base' => '18869 w19 w39 s3',  # 30 Aug 2021
-  'f5eab513/player_ias.vflset/en_US/base' => '18871 w49 s3 w2 r w27 s2',# 01 Sep 2021
-  '9da24d97/player_ias.vflset/en_US/base' => '18872 w59 w17 r',   # 02 Sep 2021
-  'a1c3b4e5/player_ias.vflset/en_US/base' => '18876 r w39 s3',    # 06 Sep 2021
-  'c21a8219/player_ias.vflset/en_US/base' => '18878 w27 w66 r w27 w53 s3 w18 s3',# 08 Sep 2021
-  '1cc7c82c/player_ias.vflset/en_US/base' => '18879 r s3 w12 s2 w58 r s3 w42 s3',# 09 Sep 2021
-  '1256b7e2/player_ias.vflset/en_US/base' => '18883 w12 s3 w28',  # 13 Sep 2021
-  'd7a19ed1/player_ias.vflset/en_US/base' => '18886 r s2 w15 w15 s3',# 16 Sep 2021
-  '202721c6/player_ias.vflset/en_US/base' => '18890 s3 w35 r s3 r',# 20 Sep 2021
-  '54d85b95/player_ias.vflset/en_US/base' => '18893 w70 s3 w17 s2 r w37 s1',# 23 Sep 2021
-  'd82ca80e/player_ias.vflset/en_US/base' => '18894 r s3 r s1 w43 w42',# 25 Sep 2021
-  '9fd4fd09/player_ias.vflset/en_US/base' => '18900 r w37 s3 r s1 r s1 w9',# 30 Sep 2021
-  'd33d444d/player_ias.vflset/en_US/base' => '18904 r w9 w25 r',  # 04 Oct 2021
-  '37e2b9da/player_ias.vflset/en_US/base' => '18906 s1 r s2',     # 06 Oct 2021
-  '920e4583/player_ias.vflset/en_US/base' => '18907 w66 r w11 s2',# 07 Oct 2021
-  '387dfd49/player_ias.vflset/en_US/base' => '18911 s1 w53 s3 w10 w5 w12 s3 r',# 11 Oct 2021
-  '5ba7be96/player_ias.vflset/en_US/base' => '18913 s1 w24 s3 w35 s2',# 13 Oct 2021
-  '03869671/player_ias.vflset/en_US/base' => '18914 s2 r s3 r s3 r s3 r w11',# 14 Oct 2021
-  '9e457a67/player_ias.vflset/en_US/base' => '18918 w57 s2 r s3', # 18 Oct 2021
-  '26b082a8/player_ias.vflset/en_US/base' => '18920 w3 s2 r s2 w47 s1',# 20 Oct 2021
-  'bc6d77fc/player_ias.vflset/en_US/base' => '18925 r w19 r s3 w48 r s1',# 25 Oct 2021
-  '9a0939d3/player_ias.vflset/en_US/base' => '18926 w51 w23 r w8',# 26 Oct 2021
-  '9216d1f7/player_ias.vflset/en_US/base' => '18927 w35 s2 w46 r',# 27 Oct 2021
-  'f8cb7a3b/player_ias.vflset/en_US/base' => '18932 r s2 r w1 r s1 w56 s1 r',# 01 Nov 2021
-  '8eb5bf0c/player_ias.vflset/en_US/base' => '18934 s3 r s3',     # 03 Nov 2021
-  'ea6a4ba6/player_ias.vflset/en_US/base' => '18939 w1 s3 w54 r', # 08 Nov 2021
-  '8d287e4d/player_ias.vflset/en_US/base' => '18942 r s2 r',      # 11 Nov 2021
-  '2dfe380c/player_ias.vflset/en_US/base' => '18946 w38 r s3 r w19 w29 w26 w33 s3',# 15 Nov 2021
-  '68e11abe/player_ias.vflset/en_US/base' => '18948 w13 r s1 r w65 s3',# 17 Nov 2021
-  'ad2aeb77/player_ias.vflset/en_US/base' => '18949 w22 w31 r w55 s1 w67 w31',# 18 Nov 2021
-  'a4610635/player_ias.vflset/en_US/base' => '18950 w38 r w12 w63 r w25',# 19 Nov 2021
-  '4c89207b/player_ias.vflset/en_US/base' => '18952 s1 w52 w34 w39 s2 r s1 r s3',# 21 Nov 2021
-  '10df06bb/player_ias.vflset/en_US/base' => '18954 w44 w64 w48 w7 s3 r',# 23 Nov 2021
-  '3ce4f9b8/player_ias.vflset/en_US/base' => '18960 r w37 r w45 w8 r',# 29 Nov 2021
-  'eea703f3/player_ias.vflset/en_US/base' => '18962 r w22 r w33 s2',# 01 Dec 2021
-  '54223c10/player_ias.vflset/en_US/base' => '18963 r w40 s3 w56 w59 r',# 02 Dec 2021
-  '8040e515/player_ias.vflset/en_US/base' => '18965 r s1 r s2 w12 r w18 r',# 05 Dec 2021
-  '0c96dfd3/player_ias.vflset/en_US/base' => '18967 w43 w29 r w6 w45 r w40',# 06 Dec 2021
-  '46ac5f60/player_ias.vflset/en_US/base' => '18968 r s1 w30',    # 07 Dec 2021
-  'a515f6d1/player_ias.vflset/en_US/base' => '18969 r w63 s3 r s1 r s2',# 08 Dec 2021
-  'dc05ba20/player_ias.vflset/en_US/base' => '18970 r w48 r s1',  # 10 Dec 2021
-  '204bfffb/player_ias.vflset/en_US/base' => '18975 r w70 s2',    # 14 Dec 2021
-  'f3c4e04d/player_ias.vflset/en_US/base' => '18976 w32 r w70',   # 15 Dec 2021
-  '13e70377/player_ias.vflset/en_US/base' => '18977 r s3 r w53 w36 r s2 w59',# 16 Dec 2021
-  '8da38e9a/player_ias.vflset/en_US/base' => '18978 r s3 w19 s2 w7 w58 r s2 r',# 17 Dec 2021
-  'edff9f99/player_ias.vflset/en_US/base' => '18997 w4 w11 r s1 w54 w4 r w18',# 05 Jan 2022
-  'f93a7034/player_ias.vflset/en_US/base' => '19002 w29 w9 s3 r s1 w53',# 10 Jan 2022
-  '18da33ed/player_ias.vflset/en_US/base' => '19005 s1 w67 s2 r s3',# 13 Jan 2022
-  '2b718ca6/player_ias.vflset/en_US/base' => '19011 r s3 r w32 w61 w25 s3 r s1',# 19 Jan 2022
-  '94ee882e/player_ias.vflset/en_US/base' => '19012 s3 r w31 s1 r s2 r',# 20 Jan 2022
-  '6087f117/player_ias.vflset/en_US/base' => '19016 r w13 s2 r w70 s3 w29',# 24 Jan 2022
-  '8ad9c87a/player_ias.vflset/en_US/base' => '19018 s3 r s3 r s3',# 26 Jan 2022
-  '495d0f2b/player_ias.vflset/en_US/base' => '19019 s2 w49 r s2 w5 w14 r',# 27 Jan 2022
-  'e06dea74/player_ias.vflset/en_US/base' => '19023 s1 w45 r',    # 31 Jan 2022
-  'cdb8d439/player_ias.vflset/en_US/base' => '19025 s1 w23 s1',   # 02 Feb 2022
-  '0cd11746/player_ias.vflset/en_US/base' => '19026 s1 r s1',     # 03 Feb 2022
-  '326d75a6/player_ias.vflset/en_US/base' => '19030 r w14 s3 w23 r s3 r s2',# 07 Feb 2022
-  '96dcbc8c/player_ias.vflset/en_US/base' => '19032 w55 r s1 w18',# 09 Feb 2022
-  '41de1c08/player_ias.vflset/en_US/base' => '19037 w45 r w31',   # 14 Feb 2022
-  '4512a530/player_ias.vflset/en_US/base' => '19039 r w3 s2 w57 s1 r',# 16 Feb 2022
-  'c3125ad0/player_ias.vflset/en_US/base' => '19040 w40 r w27 w33 w17 s2 r',# 17 Feb 2022
-  'd2cc1285/player_ias.vflset/en_US/base' => '19044 s2 r w54 s2 w62',# 21 Feb 2022
-  'ad8ea84d/player_ias.vflset/en_US/base' => '19046 s2 w17 w31 s2 r',# 23 Feb 2022
-  '450209b9/player_ias.vflset/en_US/base' => '19047 r s3 w22 s1 w43 s3 r s1 w28',# 24 Feb 2022
-  '9c1a7c38/player_ias.vflset/en_US/base' => '19051 w52 w19 w37 r w6',# 28 Feb 2022
-  '0abde7de/player_ias.vflset/en_US/base' => '19054 r s3 r s1 r', # 03 Mar 2022
-  '2fd2ad45/player_ias.vflset/en_US/base' => '19058 r s2 r w30 s1',# 07 Mar 2022
-  '6d3a4914/player_ias.vflset/en_US/base' => '19060 s2 w22 w53 w26 r w48 s1 r w3',# 09 Mar 2022
-  '87b9576a/player_ias.vflset/en_US/base' => '19061 s1 w34 r',    # 10 Mar 2022
-  'bd67d609/player_ias.vflset/en_US/base' => '19065 r s3 w54 s1 r',# 14 Mar 2022
-  '006430cb/player_ias.vflset/en_US/base' => '19067 r s1 w4 s3 r s2',# 16 Mar 2022
-  '577098c0/player_ias.vflset/en_US/base' => '19068 w65 w57 r s1 r',# 17 Mar 2022
-  '293baa5d/player_ias.vflset/en_US/base' => '19072 s1 r s3 w66 w9',# 21 Mar 2022
-  '68423b67/player_ias.vflset/en_US/base' => '19074 w7 r w24 s3', # 23 Mar 2022
-  'c6736352/player_ias.vflset/en_US/base' => '19075 s2 r s2 r',   # 24 Mar 2022
-  '3a393eba/player_ias.vflset/en_US/base' => '19079 r w31 s2 w27 s2 w70 r s2 r',# 28 Mar 2022
-  '1d26561d/player_ias.vflset/en_US/base' => '19081 s2 r w40 s1', # 30 Mar 2022
-  '449ea0a5/player_ias.vflset/en_US/base' => '19082 s1 w31 s1 r s2 w19 s1',# 31 Mar 2022
-  '9e50a907/player_ias.vflset/en_US/base' => '19086 w34 s2 w28 r w58',# 04 Apr 2022
-  '689586e2/player_ias.vflset/en_US/base' => '19088 r s3 w20 s1', # 06 Apr 2022
-  '3b5d5649/player_ias.vflset/en_US/base' => '19089 r s3 w17 s3', # 07 Apr 2022
-  '1e29bfc0/player_ias.vflset/en_US/base' => '19093 w43 s3 r w47 s2 w57',# 11 Apr 2022
-  '0c665041/player_ias.vflset/en_US/base' => '19095 r w38 r w46 s1 r w64 s1 r',# 13 Apr 2022
-  'fae06c11/player_ias.vflset/en_US/base' => '19096 w64 s1 r',    # 14 Apr 2022
-  '19eb72e4/player_ias.vflset/en_US/base' => '19100 w17 w18 w3 r w69 r w23',# 18 Apr 2022
-  'ae36df5c/player_ias.vflset/en_US/base' => '19102 r s1 r w65 r s3 r',# 20 Apr 2022
-  '534c466c/player_ias.vflset/en_US/base' => '19103 s2 w34 s2 w35 r',# 21 Apr 2022
-  '596ef930/player_ias.vflset/en_US/base' => '19107 s1 r w37 w27 w11',# 25 Apr 2022
-  'fe8185e7/player_ias.vflset/en_US/base' => '19109 s2 r s2 w33 s1 r w19',# 27 Apr 2022
-  '9cdfefcf/player_ias.vflset/en_US/base' => '19110 s2 r w44 s2 r w29 w32',# 28 Apr 2022
-  'dfe7ea14/player_ias.vflset/en_US/base' => '19114 w50 w22 s2 r s3 w25 r s1 w52',# 02 May 2022
-  '7e5c03a3/player_ias.vflset/en_US/base' => '19115 s2 w25 w49 r s2',# 03 May 2022
-  'a4d8b401/player_ias.vflset/en_US/base' => '19117 s2 r s2 r s3 r s3 r',# 05 May 2022
-  '53aba266/player_ias.vflset/en_US/base' => '19121 w34 s1 r s1 r s3 r',# 09 May 2022
-  '8a298c38/player_ias.vflset/en_US/base' => '19123 w14 w14 w18 w47 w21 w61 w42 w17 r',# 11 May 2022
-  '00e475bf/player_ias.vflset/en_US/base' => '19124 w65 w31 r s2 r',# 12 May 2022
-  '9c7ce883/player_ias.vflset/en_US/base' => '19128 w68 r w68 r s2 w39 s1',# 16 May 2022
-  '3b04fdc7/player_ias.vflset/en_US/base' => '19130 w56 w46 s2 w46',# 18 May 2022
-  'ec0ced91/player_ias.vflset/en_US/base' => '19131 r w66 w44 s2 w28 w67 s3',# 19 May 2022
-  'c5a4daa1/player_ias.vflset/en_US/base' => '19135 w55 w18 w21 s1 w53',# 23 May 2022
-  'd1783cbe/player_ias.vflset/en_US/base' => '19137 s3 r s1 w63', # 25 May 2022
-  'c403842a/player_ias.vflset/en_US/base' => '19138 w54 s1 w18 s2 r s1 w6',# 26 May 2022
-  '02208bb4/player_ias.vflset/en_US/base' => '19144 s3 r w48',    # 01 Jun 2022
-  '966d033c/player_ias.vflset/en_US/base' => '19149 w50 s3 w64 w11 w42 w41 s2',# 06 Jun 2022
-  'd97f25df/player_ias.vflset/en_US/base' => '19151 s1 w28 r s3 w24 w42 w44',# 08 Jun 2022
-  '23010b46/player_ias.vflset/en_US/base' => '19152 w54 r s2 w65 w56 w53 s3 w4 s2',# 09 Jun 2022
-  '5dedc3ae/player_ias.vflset/en_US/base' => '19156 w6 w21 r s2 r s2 w69 r s2',# 13 Jun 2022
-  'df5197e2/player_ias.vflset/en_US/base' => '19157 w68 w11 w8 w38',# 14 Jun 2022
-  'f05de49d/player_ias.vflset/en_US/base' => '19159 w21 s3 w6',   # 16 Jun 2022
-  '9017ba60/player_ias.vflset/en_US/base' => '19166 r s3 w1 s1 w13 r s1',# 23 Jun 2022
-  '9c24c545/player_ias.vflset/en_US/base' => '19167 w69 s3 r s2 r s1 w46 s3 r',# 24 Jun 2022
-  '60c2da65/player_ias.vflset/en_US/base' => '19170 w3 s3 r s1',  # 27 Jun 2022
-  'bc3f94c3/player_ias.vflset/en_US/base' => '19172 w69 r s1 w58 s2 r',# 29 Jun 2022
-  '0e7373c2/player_ias.vflset/en_US/base' => '19173 r s3 w23 s3 r',# 30 Jun 2022
-  '132602e8/player_ias.vflset/en_US/base' => '19184 s3 w11 s1 r w12 r w47',# 11 Jul 2022
-  '17327fbd/player_ias.vflset/en_US/base' => '19186 w23 w30 s3 r',# 13 Jul 2022
-  'dfd2e197/player_ias.vflset/en_US/base' => '19187 s3 r w55 s3 r s3 w48 w17 w43',# 14 Jul 2022
-  '9504bca9/player_ias.vflset/en_US/base' => '19191 s3 r w70 w62 w44 s1',# 18 Jul 2022
-  '011af516/player_ias.vflset/en_US/base' => '19193 r w25 r w16 s3 w16 r',# 20 Jul 2022
-  'afeb58ff/player_ias.vflset/en_US/base' => '19194 r w20 w3 s2', # 21 Jul 2022
-  '5784b7e4/player_ias.vflset/en_US/base' => '19198 w66 s2 w11',  # 25 Jul 2022
-  '240bde48/player_ias.vflset/en_US/base' => '19200 s3 w48 r s2 r s3 r',# 27 Jul 2022
-  'c8b8a173/player_ias.vflset/en_US/base' => '19201 w42 s3 w48 r',# 28 Jul 2022
-  '7a7465f5/player_ias.vflset/en_US/base' => '19205 w12 s2 w62',  # 01 Aug 2022
-  '7802ea37/player_ias.vflset/en_US/base' => '19207 s1 r s1 w28', # 03 Aug 2022
-  '2fd212f2/player_ias.vflset/en_US/base' => '19208 w35 r s3 r w45 w42 s3 w18',# 04 Aug 2022
-  '0d77e7db/player_ias.vflset/en_US/base' => '19212 w2 s1 r s3',  # 08 Aug 2022
-  '4c3f79c5/player_ias.vflset/en_US/base' => '19215 s1 w50 s1 r w37 r',# 11 Aug 2022
-  'c81bbb4a/player_ias.vflset/en_US/base' => '19219 w23 r s2 w63 s1 w37 w6 r',# 15 Aug 2022
-  '1f7d5369/player_ias.vflset/en_US/base' => '19221 s2 w51 w36 r s2 r w15 w57',# 17 Aug 2022
-  '009f1d77/player_ias.vflset/en_US/base' => '19222 w53 s1 r s1 w65 w61',# 18 Aug 2022
-  '0c356943/player_ias.vflset/en_US/base' => '19226 r w10 w69 w6 r s3 w27 w47 s3',# 22 Aug 2022
-  'dc0c6770/player_ias.vflset/en_US/base' => '19228 s1 r s2 w64 r w1 s1 w34',# 24 Aug 2022
-  'c2199353/player_ias.vflset/en_US/base' => '19229 w68 r s1 r s2 w31 w21 r w65',# 25 Aug 2022
-  '113ca41c/player_ias.vflset/en_US/base' => '19233 s3 r w23 r s3 r w14 r',# 29 Aug 2022
-  'c57c113c/player_ias.vflset/en_US/base' => '19235 w29 r s1 w30 s2 r s2',# 31 Aug 2022
-  '5a3b6271/player_ias.vflset/en_US/base' => '19236 r s3 r s3',   # 01 Sep 2022
-  'c16db54a/player_ias.vflset/en_US/base' => '19237 r s2 r',      # 02 Sep 2022
-  'a7eb1f5d/player_ias.vflset/en_US/base' => '19240 r w3 w60 r s1 w53 s2 w42 s1',# 05 Sep 2022
-  'f96f6702/player_ias.vflset/en_US/base' => '19242 w30 s1 w26 w11 s2',# 07 Sep 2022
-  '977792fa/player_ias.vflset/en_US/base' => '19243 w23 w36 s2 r s2 r',# 08 Sep 2022
-  '92f199c8/player_ias.vflset/en_US/base' => '19247 r w36 r s2 r s2 r',# 12 Sep 2022
-  'ec3f41f6/player_ias.vflset/en_US/base' => '19249 s3 w38 r w39 w37 r s1 w57',# 14 Sep 2022
-  'a97e97de/player_ias.vflset/en_US/base' => '19250 r s2 w5 r',   # 15 Sep 2022
-  '7577aaa2/player_ias.vflset/en_US/base' => '19254 w63 s1 r',    # 19 Sep 2022
-  '64947e15/player_ias.vflset/en_US/base' => '19256 s1 r s3 r s2 r',# 21 Sep 2022
-  'abfb84fe/player_ias.vflset/en_US/base' => '19257 w38 s3 w11 w34 w57',# 22 Sep 2022
-  'bd1343fa/player_ias.vflset/en_US/base' => '19261 s2 r w65 r s1',# 26 Sep 2022
-  '5248e50a/player_ias.vflset/en_US/base' => '19263 w68 w39 w16 w15 w61 w44',# 28 Sep 2022
-  'a336babc/player_ias.vflset/en_US/base' => '19264 r w44 w7 s2', # 29 Sep 2022
-  '374003a5/player_ias.vflset/en_US/base' => '19268 r s1 w41 r w41 s3 r w51',# 03 Oct 2022
-  '55fdc514/player_ias.vflset/en_US/base' => '19270 w1 r s2 w15 s2',# 05 Oct 2022
-  '17ab0793/player_ias.vflset/en_US/base' => '19271 r w52 w11 w25 w11 r s3 w49 s2',# 06 Oct 2022
-  '7a062b77/player_ias.vflset/en_US/base' => '19275 w19 r s3 w32 w2 w31',# 10 Oct 2022
-  'f11bc515/player_ias.vflset/en_US/base' => '19277 s1 r s1 w33 s1 w47 w44 s3 r',# 12 Oct 2022
-  '1f77e565/player_ias.vflset/en_US/base' => '19278 w48 w43 s2 r s2 w39 w19 s1 r',# 13 Oct 2022
-  'a25d4acf/player_ias.vflset/en_US/base' => '19282 w41 s1 r',    # 17 Oct 2022
-  '24c6f8bd/player_ias.vflset/en_US/base' => '19284 w14 s1 r s3', # 19 Oct 2022
-  '4bbf8bdb/player_ias.vflset/en_US/base' => '19285 r w6 w45 s3', # 20 Oct 2022
-  '64588dad/player_ias.vflset/en_US/base' => '19291 w14 w14 r s2',# 26 Oct 2022
-  '19fc75cf/player_ias.vflset/en_US/base' => '19292 r w52 w34',   # 27 Oct 2022
-  '03bec62d/player_ias.vflset/en_US/base' => '19296 r s1 r w16 s2 r w29 w51',# 31 Oct 2022
-  'c4225c42/player_ias.vflset/en_US/base' => '19303 w60 w56 w43 s3 w55',# 07 Nov 2022
-  'b50b69c9/player_ias.vflset/en_US/base' => '19310 w55 r s2',    # 14 Nov 2022
-  '6870f412/player_ias.vflset/en_US/base' => '19312 w42 s1 w23 r s3 w52 s2',# 16 Nov 2022
-  '041a7965/player_ias.vflset/en_US/base' => '19313 s3 w43 r s1 w33 r',# 17 Nov 2022
-  '4eb6b35d/player_ias.vflset/en_US/base' => '19317 s2 r s3 r s1',# 21 Nov 2022
-  'e87a69df/player_ias.vflset/en_US/base' => '19324 w25 s2 r s1 w26',# 28 Nov 2022
-  'd75422b4/player_ias.vflset/en_US/base' => '19326 w51 w29 r s1 r w12 s3 w51',# 30 Nov 2022
-  'dab28f34/player_ias.vflset/en_US/base' => '19327 r w54 r s2 r w1 r s3 r',# 01 Dec 2022
-  'ac058a09/player_ias.vflset/en_US/base' => '19331 s1 r s1 w69 w17 s3 r w45',# 05 Dec 2022
-  '72d3c60a/player_ias.vflset/en_US/base' => '19333 w60 r w13 r', # 07 Dec 2022
-  'e96685ea/player_ias.vflset/en_US/base' => '19338 w50 s3 w23 r w44',# 12 Dec 2022
-  'a0703e0f/player_ias.vflset/en_US/base' => '19340 w2 s1 r s2 w67 w41 r w46 s2',# 14 Dec 2022
-  '34f9b71c/player_ias.vflset/en_US/base' => '19341 w61 r s2 r w46 s1',# 15 Dec 2022
-  '21149d65/player_ias.vflset/en_US/base' => '19345 w9 s3 r w23 w35 w8 s2 r',# 19 Dec 2022
-  'e5f6cbd5/player_ias.vflset/en_US/base' => '19359 w29 w66 s2 w17',# 02 Jan 2023
-  'd759e46a/player_ias.vflset/en_US/base' => '19366 w43 s1 r',    # 09 Jan 2023
-  '4248d311/player_ias.vflset/en_US/base' => '19369 r s2 r s3',   # 12 Jan 2023
-  'dac945fd/player_ias.vflset/en_US/base' => '19387 w20 s1 r s3 w48 r s2 w54',# 30 Jan 2023
-  '97ea7458/player_ias.vflset/en_US/base' => '19389 s1 w60 r w45 s3 w28 r',# 01 Feb 2023
-  'f565d246/player_ias.vflset/en_US/base' => '19394 s3 w35 w24 s3 w23 r w47 r',# 06 Feb 2023
-  'd405f6b4/player_ias.vflset/en_US/base' => '19401 w51 r s3 r s1',# 13 Feb 2023
-  '1cbba2b4/player_ias.vflset/en_US/base' => '19403 s1 r w38 r s1 w11 s2',# 15 Feb 2023
-  '11e3a4ec/player_ias.vflset/en_US/base' => '19404 w20 w8 w3 w62 w50 r s3 w70 r',# 16 Feb 2023
-  '9419f2ea/player_ias.vflset/en_US/base' => '19412 w36 s2 w6 w60 w22 w15 r',# 24 Feb 2023
-  'a897053d/player_ias.vflset/en_US/base' => '19415 w61 r s3 w53 r w24 r w17 s1',# 27 Feb 2023
-  '7862ca1f/player_ias.vflset/en_US/base' => '19417 w17 s1 r w65',# 01 Mar 2023
-  '21246a91/player_ias.vflset/en_US/base' => '19422 w3 r w23 s2 w38 r w26 w22',# 06 Mar 2023
-  '837bca82/player_ias.vflset/en_US/base' => '19429 s3 w68 w53 s2 r w50',# 13 Mar 2023
-  '59acb1f3/player_ias.vflset/en_US/base' => '19431 r s2 w24',    # 15 Mar 2023
-  'c64a5d56/player_ias.vflset/en_US/base' => '19436 w39 s3 r w23 w36 s3 r w44',# 20 Mar 2023
-  'ace4d669/player_ias.vflset/en_US/base' => '19438 w7 r s1 w68 w53 s3',# 22 Mar 2023
-  '931a8913/player_ias.vflset/en_US/base' => '19443 w56 s2 r w57 w28 r',# 27 Mar 2023
-  'fa7eb95c/player_ias.vflset/en_US/base' => '19445 r w1 w1 w4 w36 r s1',# 29 Mar 2023
-  '7da8dd3e/player_ias.vflset/en_US/base' => '19450 r s2 r w17',  # 03 Apr 2023
-  '248ded94/player_ias.vflset/en_US/base' => '19457 w9 s1 r s3 r',# 10 Apr 2023
-  '36754c51/player_ias.vflset/en_US/base' => '19459 w19 w16 r s1 r s2 r',# 12 Apr 2023
-  '6f20102c/player_ias.vflset/en_US/base' => '19464 w45 w53 r s2 w27',# 17 Apr 2023
-  'd87d581f/player_ias.vflset/en_US/base' => '19466 s1 r s3 r w63 r w14 r',# 19 Apr 2023
-  '73d31b49/player_ias.vflset/en_US/base' => '19471 r s2 w41 w52 r w17 r w70 r',# 24 Apr 2023
-  '0c487f05/player_ias.vflset/en_US/base' => '19473 r s1 r w47 s1',# 26 Apr 2023
+# 'player_ias-vflbwmoEe/en_US/base' => '18295 r w51 r s2 w39 r w6 w58',# 03 Feb 2020
+# 'player_ias-vflZgL1a2/en_US/base' => '18298 s3 r s2 r w67 w11', # 06 Feb 2020
+# 'player_ias-vflrgVy3r/en_US/base' => '18302 r w53 w5',          # 10 Feb 2020
+# 'player_ias-vfla5PwTn/en_US/base' => '18302 r w53 w5',          # 10 Feb 2020
+# 'player_ias-vfl5eNx6Z/en_US/base' => '18304 s2 r w9 w53 r w52 w68 r',# 12 Feb 2020
+# 'player_ias-vflT0MlXN/en_US/base' => '18305 w8 r w57 w44 s1 w53 r',# 13 Feb 2020
+# 'player_ias-vflp5fPn0/en_US/base' => '18305 w8 r w57 w44 s1 w53 r',# 13 Feb 2020
+# 'player_ias-vfl3Rvzpw/en_US/base' => '18311 w26 r w18 s1 r s2 r w37 s1',# 19 Feb 2020
+# 'player_ias-vfl5Kte8U/en_US/base' => '18317 w30 w63 w15 s3 r w50 s3 r w58',# 25 Feb 2020
+# 'player_ias-vflMJC6WU/en_US/base' => '18323 r s3 w58 r s3 r w16 r w20',# 02 Mar 2020
+# 'player_ias-vfl1Ng2HU/en_US/base' => '18324 w34 s1 w69 s3 r s2 w53',# 03 Mar 2020
+# 'player_ias-vfle4a9aa/en_US/base' => '18324 w34 s1 w69 s3 r s2 w53',# 03 Mar 2020
+# 'player_ias-vfl5C38RC/en_US/base' => '18325 w50 s3 w33 r s2 w6 r w16 r',# 04 Mar 2020
+# 'player_ias-vflQm4drh/en_US/base' => '18330 s1 w21 r w34 w18 w63',# 09 Mar 2020
+# 'player_ias-vflQJ_oH3/en_US/base' => '18332 w61 r s2',          # 11 Mar 2020
+# 'player_ias-vflJMXyvH/en_US/base' => '18337 w29 w41 s2 w23 s2 r s2',# 17 Mar 2020
+# 'player_ias-vflSBTliv/en_US/base' => '18338 w15 s1 w43 s3 r s3',# 17 Mar 2020
+# 'player_ias-vflEO2H8R/en_US/base' => '18340 s3 w28 r s3',       # 19 Mar 2020
+# 'player_ias-vfl2Bfj4C/en_US/base' => '18341 w70 s1 w62 r w69 r s1',# 20 Mar 2020
+# 'player_ias-vflJalPc2/en_US/base' => '18344 r w23 w65 w53',     # 23 Mar 2020
+# 'player_ias-vfl_gAQka/en_US/base' => '18351 w45 s1 w52 r w36 r w2',# 30 Mar 2020
+# 'player_ias-vfluKIiVl/en_US/base' => '18352 r w67 w37 s2 w59',  # 31 Mar 2020
+# 'player_ias-vflBAN1y0/en_US/base' => '18352 r w67 w37 s2 w59',  # 31 Mar 2020
+# 'player_ias-vfl5cScu9/en_US/base' => '18353 r s3 r',            # 01 Apr 2020
+# 'player_ias-vfl6MUxK7/en_US/base' => '18354 w35 r w42 w11 w48 s3 w70 s1',# 02 Apr 2020
+# 'player_ias-vfl_CsZz6/en_US/base' => '18356 w22 w17 s2 r s1 w8',# 04 Apr 2020
+# 'player_ias-vfl6VLxLZ/en_US/base' => '18359 s3 w39 s2 w1 s1 w35 w51 s2 r',# 07 Apr 2020
+# '4fbb4d5b/player_ias.vflset/en_US/base' => '18359 s3 w39 s2 w1 s1 w35 w51 s2 r',# 07 Apr 2020
+# '5478d871/player_ias.vflset/en_US/base' => '18366 w38 w7 s2',   # 14 Apr 2020
+# 'f676c671/player_ias.vflset/en_US/base' => '18368 s2 w4 w46 s2 w34 w59 r',# 16 Apr 2020
+# 'bfb2a3b4/player_ias.vflset/en_US/base' => '18372 s3 w21 r s3 r w36',# 20 Apr 2020
+# '45e4d51d/player_ias.vflset/en_US/base' => '18375 w17 w16 r w25 r w50 w35',# 23 Apr 2020
+# '0374edcb/player_ias.vflset/en_US/base' => '18379 w8 w43 w10 w34',# 27 Apr 2020
+# '64dddad9/player_ias.vflset/en_US/base' => '18382 r w69 r w40', # 30 Apr 2020
+# '52b1e972/player_ias.vflset/en_US/base' => '18386 w25 w47 r s1 w47',# 04 May 2020
+# '0acb4375/player_ias.vflset/en_US/base' => '18389 r s1 w23 s3 w51',# 07 May 2020
+# '376e3c34/player_ias.vflset/en_US/base' => '18394 r s3 w26',    # 12 May 2020
+# '70f6ca87/player_ias.vflset/en_US/base' => '18395 w24 w13 w22 w23 s1 w44 r w15',# 13 May 2020
+# 'c31ba6fc/player_ias.vflset/en_US/base' => '18396 s3 w35 r w7', # 14 May 2020
+# 'e3cd195e/player_ias.vflset/en_US/base' => '18400 r w5 w20 r s2 w52 r w66 r',# 18 May 2020
+# '85548937/player_ias.vflset/en_US/base' => '18403 s2 r s3 w14 w68 r w49 w30 w69',# 21 May 2020
+# '4583e272/player_ias.vflset/en_US/base' => '18407 w27 s1 r s2 r w43',# 25 May 2020
+# 'de455b1a/player_ias.vflset/en_US/base' => '18410 w11 w70 w8 w40',# 28 May 2020
+# 'c31b936c/player_ias.vflset/en_US/base' => '18414 w23 w59 s3 w33 w49 s3 r',# 01 Jun 2020
+# '39dd62a0/player_ias.vflset/en_US/base' => '18417 w11 w29 s3 w69 r s2 r',# 05 Jun 2020
+# '16a691a1/player_ias.vflset/en_US/base' => '18421 r s3 w1 w67 s2 w8',# 08 Jun 2020
+# '0c5285fd/player_ias.vflset/en_US/base' => '18428 s1 r w18 w59',# 15 Jun 2020
+# '1d33781a/player_ias.vflset/en_US/base' => '18432 r s1 r w28',  # 19 Jun 2020
+# '5cc7c83f/player_ias.vflset/en_US/base' => '18435 s1 w29 r s3 w41 s2 w27 r',# 22 Jun 2020
+# '68f00b39/player_ias.vflset/en_US/base' => '18438 r w15 s1 r w11 s2',# 25 Jun 2020
+# '02c092a5/player_ias.vflset/en_US/base' => '18442 s2 r s1 r w37 s3',# 29 Jun 2020
+# '54668ca9/player_ias.vflset/en_US/base' => '18444 r w43 r s3 r',# 01 Jul 2020
+# '3662280c/player_ias.vflset/en_US/base' => '18449 s2 r w70',    # 06 Jul 2020
+# '5253ac4d/player_ias.vflset/en_US/base' => '18456 r s3 r w70',  # 13 Jul 2020
+# '8786a07b/player_ias.vflset/en_US/base' => '18463 r s2 r w29 r s1 r s3',# 20 Jul 2020
+# '0bb3b162/player_ias.vflset/en_US/base' => '18466 w39 r w20',   # 23 Jul 2020
+# 'c718385a/player_ias.vflset/en_US/base' => '18473 w23 r w63 r s1 r',# 30 Jul 2020
+# 'e49bfb00/player_ias.vflset/en_US/base' => '18477 w4 r w15 s3 w24 w4 r w24',# 03 Aug 2020
+# 'c0a91787/player_ias.vflset/en_US/base' => '18480 w14 w61 s2 w28 w27 s3 w1 w20',# 06 Aug 2020
+# '0a90460f/player_ias.vflset/en_US/base' => '18484 s1 r s1 w47', # 10 Aug 2020
+# '0c815aae/player_ias.vflset/en_US/base' => '18487 w29 r w61 s2 w32 s3 w34',# 13 Aug 2020
+# 'cba0baa7/player_ias.vflset/en_US/base' => '18491 w27 w46 w22 r w46 s2 r w21',# 17 Aug 2020
+# '530216c1/player_ias.vflset/en_US/base' => '18494 r s3 r w43',  # 20 Aug 2020
+# 'eecb0f1e/player_ias.vflset/en_US/base' => '18498 w20 w11 s3 r w27 r s2 r s2',# 24 Aug 2020
+# '54d6fa95/player_ias.vflset/en_US/base' => '18501 s1 w39 s3',   # 27 Aug 2020
+# '86f77974/player_ias.vflset/en_US/base' => '18505 r w69 r w20 r w32 s3',# 31 Aug 2020
+# 'bcf2977e/player_ias.vflset/en_US/base' => '18508 s2 w28 w46 r s1',# 03 Sep 2020
+# '8c24a503/player_ias.vflset/en_US/base' => '18508 s2 w28 w46 r s1',# 04 Sep 2020
+# '134332d3/player_ias.vflset/en_US/base' => '18516 s3 r w1 w3 w51 r',# 11 Sep 2020
+# 'e0d83c30/player_ias.vflset/en_US/base' => '18519 w32 r s1 r s3 r w28 s1',# 14 Sep 2020
+# '4b1ba5ea/player_ias.vflset/en_US/base' => '18523 s3 w21 r s1 w27 w54 r s3',# 18 Sep 2020
+# '9ce2f25a/player_ias.vflset/en_US/base' => '18526 r s2 r w51 s1 r',# 21 Sep 2020
+# '12237e3d/player_ias.vflset/en_US/base' => '18529 s1 r s2',     # 24 Sep 2020
+# '4c375770/player_ias.vflset/en_US/base' => '18536 s3 w41 s3 w3 s3 r',# 01 Oct 2020
+# '1a1b48e5/player_ias.vflset/en_US/base' => '18540 s1 w45 r s3 r s1 w50 s1 r',# 05 Oct 2020
+# '3c37ed48/player_ias.vflset/en_US/base' => '18547 r w15 r',     # 12 Oct 2020
+# '00510e67/player_ias.vflset/en_US/base' => '18550 w62 r s1 w45 r s2 r',# 15 Oct 2020
+# '5799986b/player_ias.vflset/en_US/base' => '18554 w29 r w38 r', # 19 Oct 2020
+# '4a1799bd/player_ias.vflset/en_US/base' => '18557 s2 w30 r',    # 22 Oct 2020
+# '9b65e980/player_ias.vflset/en_US/base' => '18561 r s3 w51 s2', # 26 Oct 2020
+# 'ec262be6/player_ias.vflset/en_US/base' => '18564 w67 s1 w49 s3 w52 r s1 w43 r',# 29 Oct 2020
+# 'c926146c/player_ias.vflset/en_US/base' => '18568 s1 w50 r s3 w34 r',# 02 Nov 2020
+# '16e41f55/player_ias.vflset/en_US/base' => '18571 w64 w1 w25 w70 r s2',# 05 Nov 2020
+# 'ac4b0b03/player_ias.vflset/en_US/base' => '18575 w69 r s2 w56 s1 r s3 r',# 09 Nov 2020
+# 'c299662f/player_ias.vflset/en_US/base' => '18578 r s2 w65 s2 r s3 r w2',# 12 Nov 2020
+# 'a3726513/player_ias.vflset/en_US/base' => '18582 r w10 r s1 w13 s2 w15',# 16 Nov 2020
+# '8b85eac2/player_ias.vflset/en_US/base' => '18585 w62 r s1 w67',# 19 Nov 2020
+# '77da52cd/player_ias.vflset/en_US/base' => '18590 s3 r w69 s2 w41',# 24 Nov 2020
+# '408be03a/player_ias.vflset/en_US/base' => '18596 w26 w1 r s2 r',# 30 Nov 2020
+# '6dde7fb4/player_ias.vflset/en_US/base' => '18604 r s3 w54 s3 r s1',# 08 Dec 2020
+# '03226028/player_ias.vflset/en_US/base' => '18606 s2 w62 r',    # 10 Dec 2020
+# '62f90c99/player_ias.vflset/en_US/base' => '18610 w49 s3 w10 s1',# 14 Dec 2020
+# 'c88a8657/player_ias.vflset/en_US/base' => '18612 r s1 r w18 s3 w36 r w32 s3',# 16 Dec 2020
+# '2e6e57d8/player_ias.vflset/en_US/base' => '18613 w9 w4 r w54 r',# 17 Dec 2020
+# '5dd3f3b2/player_ias.vflset/en_US/base' => '18617 r w13 s3 r w69 s2 w58 r s1',# 21 Dec 2020
+# '9f996d3e/player_ias.vflset/en_US/base' => '18634 s2 r s2 w1 w8',# 07 Jan 2021
+# 'bfb74eaf/player_ias.vflset/en_US/base' => '18645 s2 r w29',    # 18 Jan 2021
+# '27cea338/player_ias.vflset/en_US/base' => '18652 w35 s2 w8 r w51',# 25 Jan 2021
+# 'c6df6ed7/player_ias.vflset/en_US/base' => '18653 w35 s3 r w44 s1',# 26 Jan 2021
+# '7bc032d0/player_ias.vflset/en_US/base' => '18655 r w56 w14 w9 r w30 r s3',# 28 Jan 2021
+# 'f6ef8aad/player_ias.vflset/en_US/base' => '18659 s1 w34 s2 r w64 s1 w55 r s3',# 01 Feb 2021
+# '4bc55fd6/player_ias.vflset/en_US/base' => '18660 s2 r s1',     # 02 Feb 2021
+# '0e3144b6/player_ias.vflset/en_US/base' => '18662 r s1 r w10 r s3 w68 s3 w58',# 04 Feb 2021
+# '31234943/player_ias.vflset/en_US/base' => '18667 s2 r s1 r s3 r s2 r w66',# 09 Feb 2021
+# '0ce056a2/player_ias.vflset/en_US/base' => '18668 w55 w55 s2 r',# 10 Feb 2021
+# '490079fb/player_ias.vflset/en_US/base' => '18669 r s1 r s3 r w61 w60',# 11 Feb 2021
+# '6eebf7aa/player_ias.vflset/en_US/base' => '18673 w2 s2 w24',   # 15 Feb 2021
+# '1c732901/player_ias.vflset/en_US/base' => '18676 r s3 w37 s3', # 18 Feb 2021
+# '5a096a9f/player_ias.vflset/en_US/base' => '18680 w17 r s3 w12 s1 r w47 r',# 22 Feb 2021
+# '392133a3/player_ias.vflset/en_US/base' => '18681 r s2 r w48 s1 w15 r',# 23 Feb 2021
+# '4fe52f49/player_ias.vflset/en_US/base' => '18683 w20 s2 w13 r s3',# 25 Feb 2021
+# '0d54190b/player_ias.vflset/en_US/base' => '18688 w18 r s1 w17 r w60 r s3 w39',# 02 Mar 2021
+# 'a09205f7/player_ias.vflset/en_US/base' => '18690 w33 r s1 r s1 r s2',# 04 Mar 2021
+# 'd91669a4/player_ias.vflset/en_US/base' => '18694 s2 r s1 w54 w14 w12 s3',# 08 Mar 2021
+# '34a43f74/player_ias.vflset/en_US/base' => '18695 r w27 r s1 r w4 r w41 w41',# 09 Mar 2021
+# 'd29f3109/player_ias.vflset/en_US/base' => '18697 r w2 w25 r w21 s3 w35 s2 w70',# 11 Mar 2021
+# 'b2e56c01/player_ias.vflset/en_US/base' => '18701 w18 w37 w29 w21 s2 r w29 s2 r',# 15 Mar 2021
+# '223a7479/player_ias.vflset/en_US/base' => '18702 s3 w54 w21 w23 w57 w2 r w22',# 16 Mar 2021
+# '228f3ac7/player_ias.vflset/en_US/base' => '18708 s3 w54 r w39 r',# 22 Mar 2021
+# '38c5f870/player_ias.vflset/en_US/base' => '18709 w51 r s3 w11 r s2 r',# 23 Mar 2021
+# '9f1ab255/player_ias.vflset/en_US/base' => '18716 r s2 r w68 w66 r',# 30 Mar 2021
+# '4ad4b014/player_ias.vflset/en_US/base' => '18717 s3 w63 w20 s1 r w44 s1',# 31 Mar 2021
+# '3a4ee0a9/player_ias.vflset/en_US/base' => '18718 w9 w21 s3 r s3 w46 w67 r w15',# 01 Apr 2021
+# '1c20fac3/player_ias.vflset/en_US/base' => '18722 w25 r s1 r s3 w65 w32 s1 r',# 05 Apr 2021
+# '1d7f16b4/player_ias.vflset/en_US/base' => '18723 r w27 s3 w23 r w56 w46 r s1',# 06 Apr 2021
+# 'd2ff46c3/player_ias.vflset/en_US/base' => '18725 w19 s2 w2 w24',# 08 Apr 2021
+# '2cea24bf/player_ias.vflset/en_US/base' => '18729 s1 w69 w1 w18 r w2',# 12 Apr 2021
+# '82e684c7/player_ias.vflset/en_US/base' => '18730 s2 w9 r s3 r w53 r',# 13 Apr 2021
+# 'e0d06a61/player_ias.vflset/en_US/base' => '18732 s3 r s3 r s2 w4 w41 w41 r',# 15 Apr 2021
+# 'ba95ea16/player_ias.vflset/en_US/base' => '18736 w68 r w24 r s3 w67 s2 w16',# 19 Apr 2021
+# 'ae5b2092/player_ias.vflset/en_US/base' => '18737 w54 r w13 w7 w27 w19 w13',# 20 Apr 2021
+# 'fa244a41/player_ias.vflset/en_US/base' => '18739 s2 r s3 r w54 w51 r',# 22 Apr 2021
+# 'cb5bd7e6/player_ias.vflset/en_US/base' => '18744 s2 w5 r s1 r w41 s3',# 27 Apr 2021
+# '901932ee/player_ias.vflset/en_US/base' => '18746 s1 w26 w38 s3 r w53 w35 w24 s2',# 29 Apr 2021
+# 'bce81a70/player_ias.vflset/en_US/base' => '18747 w50 w48 w23 w31',# 30 Apr 2021
+# '3e7e4b43/player_ias.vflset/en_US/base' => '18750 s2 w47 s1 r s2 w4 r w15 w40',# 03 May 2021
+# 'bffc6f9f/player_ias.vflset/en_US/base' => '18751 s3 w7 w50 r s2 r w38',# 04 May 2021
+# '838cc154/player_ias.vflset/en_US/base' => '18753 w41 s3 r s2 r w62 s3 w69 s2',# 06 May 2021
+# '8fd60c09/player_ias.vflset/en_US/base' => '18758 s2 w18 s2 w50 s1 w44 w54 r',# 11 May 2021
+# '24fb4fc5/player_ias.vflset/en_US/base' => '18758 s2 w18 s2 w50 s1 w44 w54 r',# 11 May 2021
+# 'b2ff0586/player_ias.vflset/en_US/base' => '18760 s2 w45 w38 s2 r s2',# 13 May 2021
+# '08244190/player_ias.vflset/en_US/base' => '18764 w46 r s3',    # 17 May 2021
+# 'fba90263/player_ias.vflset/en_US/base' => '18766 s2 r s3',     # 19 May 2021
+# '3d0175c7/player_ias.vflset/en_US/base' => '18767 w68 s1 r',    # 20 May 2021
+# 'c39bcc11/player_ias.vflset/en_US/base' => '18768 r s1 w6 s3 w34 r s1 w37',# 21 May 2021
+# '8523e85c/player_ias.vflset/en_US/base' => '18771 w16 r s3 r w49 w50 w67 w22',# 24 May 2021
+# 'e467278e/player_ias.vflset/en_US/base' => '18772 s3 r s1 r w59 s2 w15 r w21',# 25 May 2021
+# '0b643cd1/player_ias.vflset/en_US/base' => '18774 w57 r w13 r s1 w40 s1 w19',# 27 May 2021
+# '5d68a2c6/player_ias.vflset/en_US/base' => '18778 s3 w5 w46 s1 r s3 w20',# 31 May 2021
+# '5d56cf74/player_ias.vflset/en_US/base' => '18781 w65 r w38 r s2',# 04 Jun 2021
+# '00fe505f/player_ias.vflset/en_US/base' => '18785 w36 s3 r',    # 07 Jun 2021
+# '68cc98b3/player_ias.vflset/en_US/base' => '18786 r s2 r s3 r s3 w34 s2',# 08 Jun 2021
+# '1fe59655/player_ias.vflset/en_US/base' => '18786 r s2 r s3 r s3 w34 s2',# 08 Jun 2021
+# 'a0094ae9/player_ias.vflset/en_US/base' => '18788 r w47 r s1',  # 10 Jun 2021
+# 'a7cbbf24/player_ias.vflset/en_US/base' => '18788 r w47 r s1',  # 10 Jun 2021
+# '2a6f5e06/player_ias.vflset/en_US/base' => '18792 w5 r s1 w62 s1 r w48 w36 s1',# 14 Jun 2021
+# '997fe684/player_ias.vflset/en_US/base' => '18793 w24 s2 w43 w36 s3 r s3 r w32',# 15 Jun 2021
+# 'da9443d1/player_ias.vflset/en_US/base' => '18795 w49 w26 r w62 r s2',# 17 Jun 2021
+# '2fa3f946/player_ias.vflset/en_US/base' => '18799 w70 r w64 r w70 r w61',# 21 Jun 2021
+# 'b4c937ab/player_ias.vflset/en_US/base' => '18801 r w45 w32',   # 23 Jun 2021
+# '11aba956/player_ias.vflset/en_US/base' => '18802 r w15 s3 w17',# 24 Jun 2021
+# '1a0ca43b/player_ias.vflset/en_US/base' => '18806 w3 r s2',     # 28 Jun 2021
+# '7acefd5d/player_ias.vflset/en_US/base' => '18808 w52 r s1',    # 30 Jun 2021
+# '1eb201ea/player_ias.vflset/en_US/base' => '18815 r s2 r w6 s3 w28',# 07 Jul 2021
+# '51ff6aac/player_ias.vflset/en_US/base' => '18816 s3 r s3 w24 s2 w53',# 08 Jul 2021
+# 'e5748921/player_ias.vflset/en_US/base' => '18820 r w18 r w44 w43 s3',# 12 Jul 2021
+# 'bec4196e/player_ias.vflset/en_US/base' => '18822 w31 s3 w11 w53 s3 w7',# 14 Jul 2021
+# '7ba2b998/player_ias.vflset/en_US/base' => '18823 s1 w28 w14 r w6 s2 r',# 15 Jul 2021
+# '375e32fd/player_ias.vflset/en_US/base' => '18827 w66 s3 w55 w29 r w27 r',# 19 Jul 2021
+# '3804dce2/player_ias.vflset/en_US/base' => '18829 w41 s3 w44 s1',# 21 Jul 2021
+# '408a20d8/player_ias.vflset/en_US/base' => '18830 w58 s3 w64 s2 r w41 r w25 s3',# 22 Jul 2021
+# '02486e7d/player_ias.vflset/en_US/base' => '18834 w60 r w24 w13',# 26 Jul 2021
+# '4aeb5fe3/player_ias.vflset/en_US/base' => '18836 s3 w63 r w31',# 28 Jul 2021
+# '3c3086a1/player_ias.vflset/en_US/base' => '18837 w23 r w49 w39 s2',# 29 Jul 2021
+# '2840754e/player_ias.vflset/en_US/base' => '18841 w43 r w36 w50 s3 w5 r w47 r',# 02 Aug 2021
+# '850eb2bc/player_ias.vflset/en_US/base' => '18843 s2 r s1',     # 04 Aug 2021
+# 'be9c9f3b/player_ias.vflset/en_US/base' => '18844 w24 w30 s2 w57 w41 w70 w34 s1',# 05 Aug 2021
+# '4224c673/player_ias.vflset/en_US/base' => '18848 w48 r s3 r s3 r w58 r',# 09 Aug 2021
+# 'a081deec/player_ias.vflset/en_US/base' => '18850 s3 w4 w35 s3 w63 s2 r w51 s3',# 11 Aug 2021
+# '50e823fc/player_ias.vflset/en_US/base' => '18851 r w43 w37 r s1 w60 r w39',# 12 Aug 2021
+# '28f65009/player_ias.vflset/en_US/base' => '18857 s3 r s3',     # 18 Aug 2021
+# 'b555ee94/player_ias.vflset/en_US/base' => '18858 w51 s3 w28 w29 w3 w47 r w1',# 19 Aug 2021
+# '31389f53/player_ias.vflset/en_US/base' => '18862 w39 r w41',   # 23 Aug 2021
+# 'ee7f98d9/player_ias.vflset/en_US/base' => '18864 s3 w4 s2 r s1 w37 s3',# 25 Aug 2021
+# '528656c7/player_ias.vflset/en_US/base' => '18865 r s2 w64 r w68 s3 w56 w49 s3',# 26 Aug 2021
+# 'c29c59cf/player_ias.vflset/en_US/base' => '18869 w19 w39 s3',  # 30 Aug 2021
+# 'f5eab513/player_ias.vflset/en_US/base' => '18871 w49 s3 w2 r w27 s2',# 01 Sep 2021
+# '9da24d97/player_ias.vflset/en_US/base' => '18872 w59 w17 r',   # 02 Sep 2021
+# 'a1c3b4e5/player_ias.vflset/en_US/base' => '18876 r w39 s3',    # 06 Sep 2021
+# 'c21a8219/player_ias.vflset/en_US/base' => '18878 w27 w66 r w27 w53 s3 w18 s3',# 08 Sep 2021
+# '1cc7c82c/player_ias.vflset/en_US/base' => '18879 r s3 w12 s2 w58 r s3 w42 s3',# 09 Sep 2021
+# '1256b7e2/player_ias.vflset/en_US/base' => '18883 w12 s3 w28',  # 13 Sep 2021
+# 'd7a19ed1/player_ias.vflset/en_US/base' => '18886 r s2 w15 w15 s3',# 16 Sep 2021
+# '202721c6/player_ias.vflset/en_US/base' => '18890 s3 w35 r s3 r',# 20 Sep 2021
+# '54d85b95/player_ias.vflset/en_US/base' => '18893 w70 s3 w17 s2 r w37 s1',# 23 Sep 2021
+# 'd82ca80e/player_ias.vflset/en_US/base' => '18894 r s3 r s1 w43 w42',# 25 Sep 2021
+# '9fd4fd09/player_ias.vflset/en_US/base' => '18900 r w37 s3 r s1 r s1 w9',# 30 Sep 2021
+# 'd33d444d/player_ias.vflset/en_US/base' => '18904 r w9 w25 r',  # 04 Oct 2021
+# '37e2b9da/player_ias.vflset/en_US/base' => '18906 s1 r s2',     # 06 Oct 2021
+# '920e4583/player_ias.vflset/en_US/base' => '18907 w66 r w11 s2',# 07 Oct 2021
+# '387dfd49/player_ias.vflset/en_US/base' => '18911 s1 w53 s3 w10 w5 w12 s3 r',# 11 Oct 2021
+# '5ba7be96/player_ias.vflset/en_US/base' => '18913 s1 w24 s3 w35 s2',# 13 Oct 2021
+# '03869671/player_ias.vflset/en_US/base' => '18914 s2 r s3 r s3 r s3 r w11',# 14 Oct 2021
+# '9e457a67/player_ias.vflset/en_US/base' => '18918 w57 s2 r s3', # 18 Oct 2021
+# '26b082a8/player_ias.vflset/en_US/base' => '18920 w3 s2 r s2 w47 s1',# 20 Oct 2021
+# 'bc6d77fc/player_ias.vflset/en_US/base' => '18925 r w19 r s3 w48 r s1',# 25 Oct 2021
+# '9a0939d3/player_ias.vflset/en_US/base' => '18926 w51 w23 r w8',# 26 Oct 2021
+# '9216d1f7/player_ias.vflset/en_US/base' => '18927 w35 s2 w46 r',# 27 Oct 2021
+# 'f8cb7a3b/player_ias.vflset/en_US/base' => '18932 r s2 r w1 r s1 w56 s1 r',# 01 Nov 2021
+# '8eb5bf0c/player_ias.vflset/en_US/base' => '18934 s3 r s3',     # 03 Nov 2021
+# 'ea6a4ba6/player_ias.vflset/en_US/base' => '18939 w1 s3 w54 r', # 08 Nov 2021
+# '8d287e4d/player_ias.vflset/en_US/base' => '18942 r s2 r',      # 11 Nov 2021
+# '2dfe380c/player_ias.vflset/en_US/base' => '18946 w38 r s3 r w19 w29 w26 w33 s3',# 15 Nov 2021
+# '68e11abe/player_ias.vflset/en_US/base' => '18948 w13 r s1 r w65 s3',# 17 Nov 2021
+# 'ad2aeb77/player_ias.vflset/en_US/base' => '18949 w22 w31 r w55 s1 w67 w31',# 18 Nov 2021
+# 'a4610635/player_ias.vflset/en_US/base' => '18950 w38 r w12 w63 r w25',# 19 Nov 2021
+# '4c89207b/player_ias.vflset/en_US/base' => '18952 s1 w52 w34 w39 s2 r s1 r s3',# 21 Nov 2021
+# '10df06bb/player_ias.vflset/en_US/base' => '18954 w44 w64 w48 w7 s3 r',# 23 Nov 2021
+# '3ce4f9b8/player_ias.vflset/en_US/base' => '18960 r w37 r w45 w8 r',# 29 Nov 2021
+# 'eea703f3/player_ias.vflset/en_US/base' => '18962 r w22 r w33 s2',# 01 Dec 2021
+# '54223c10/player_ias.vflset/en_US/base' => '18963 r w40 s3 w56 w59 r',# 02 Dec 2021
+# '8040e515/player_ias.vflset/en_US/base' => '18965 r s1 r s2 w12 r w18 r',# 05 Dec 2021
+# '0c96dfd3/player_ias.vflset/en_US/base' => '18967 w43 w29 r w6 w45 r w40',# 06 Dec 2021
+# '46ac5f60/player_ias.vflset/en_US/base' => '18968 r s1 w30',    # 07 Dec 2021
+# 'a515f6d1/player_ias.vflset/en_US/base' => '18969 r w63 s3 r s1 r s2',# 08 Dec 2021
+# 'dc05ba20/player_ias.vflset/en_US/base' => '18970 r w48 r s1',  # 10 Dec 2021
+# '204bfffb/player_ias.vflset/en_US/base' => '18975 r w70 s2',    # 14 Dec 2021
+# 'f3c4e04d/player_ias.vflset/en_US/base' => '18976 w32 r w70',   # 15 Dec 2021
+# '13e70377/player_ias.vflset/en_US/base' => '18977 r s3 r w53 w36 r s2 w59',# 16 Dec 2021
+# '8da38e9a/player_ias.vflset/en_US/base' => '18978 r s3 w19 s2 w7 w58 r s2 r',# 17 Dec 2021
+# 'edff9f99/player_ias.vflset/en_US/base' => '18997 w4 w11 r s1 w54 w4 r w18',# 05 Jan 2022
+# 'f93a7034/player_ias.vflset/en_US/base' => '19002 w29 w9 s3 r s1 w53',# 10 Jan 2022
+# '18da33ed/player_ias.vflset/en_US/base' => '19005 s1 w67 s2 r s3',# 13 Jan 2022
+# '2b718ca6/player_ias.vflset/en_US/base' => '19011 r s3 r w32 w61 w25 s3 r s1',# 19 Jan 2022
+# '94ee882e/player_ias.vflset/en_US/base' => '19012 s3 r w31 s1 r s2 r',# 20 Jan 2022
+# '6087f117/player_ias.vflset/en_US/base' => '19016 r w13 s2 r w70 s3 w29',# 24 Jan 2022
+# '8ad9c87a/player_ias.vflset/en_US/base' => '19018 s3 r s3 r s3',# 26 Jan 2022
+# '495d0f2b/player_ias.vflset/en_US/base' => '19019 s2 w49 r s2 w5 w14 r',# 27 Jan 2022
+# 'e06dea74/player_ias.vflset/en_US/base' => '19023 s1 w45 r',    # 31 Jan 2022
+# 'cdb8d439/player_ias.vflset/en_US/base' => '19025 s1 w23 s1',   # 02 Feb 2022
+# '0cd11746/player_ias.vflset/en_US/base' => '19026 s1 r s1',     # 03 Feb 2022
+# '326d75a6/player_ias.vflset/en_US/base' => '19030 r w14 s3 w23 r s3 r s2',# 07 Feb 2022
+# '96dcbc8c/player_ias.vflset/en_US/base' => '19032 w55 r s1 w18',# 09 Feb 2022
+# '41de1c08/player_ias.vflset/en_US/base' => '19037 w45 r w31',   # 14 Feb 2022
+# '4512a530/player_ias.vflset/en_US/base' => '19039 r w3 s2 w57 s1 r',# 16 Feb 2022
+# 'c3125ad0/player_ias.vflset/en_US/base' => '19040 w40 r w27 w33 w17 s2 r',# 17 Feb 2022
+# 'd2cc1285/player_ias.vflset/en_US/base' => '19044 s2 r w54 s2 w62',# 21 Feb 2022
+# 'ad8ea84d/player_ias.vflset/en_US/base' => '19046 s2 w17 w31 s2 r',# 23 Feb 2022
+# '450209b9/player_ias.vflset/en_US/base' => '19047 r s3 w22 s1 w43 s3 r s1 w28',# 24 Feb 2022
+# '9c1a7c38/player_ias.vflset/en_US/base' => '19051 w52 w19 w37 r w6',# 28 Feb 2022
+# '0abde7de/player_ias.vflset/en_US/base' => '19054 r s3 r s1 r', # 03 Mar 2022
+# '2fd2ad45/player_ias.vflset/en_US/base' => '19058 r s2 r w30 s1',# 07 Mar 2022
+# '6d3a4914/player_ias.vflset/en_US/base' => '19060 s2 w22 w53 w26 r w48 s1 r w3',# 09 Mar 2022
+# '87b9576a/player_ias.vflset/en_US/base' => '19061 s1 w34 r',    # 10 Mar 2022
+# 'bd67d609/player_ias.vflset/en_US/base' => '19065 r s3 w54 s1 r',# 14 Mar 2022
+# '006430cb/player_ias.vflset/en_US/base' => '19067 r s1 w4 s3 r s2',# 16 Mar 2022
+# '577098c0/player_ias.vflset/en_US/base' => '19068 w65 w57 r s1 r',# 17 Mar 2022
+# '293baa5d/player_ias.vflset/en_US/base' => '19072 s1 r s3 w66 w9',# 21 Mar 2022
+# '68423b67/player_ias.vflset/en_US/base' => '19074 w7 r w24 s3', # 23 Mar 2022
+# 'c6736352/player_ias.vflset/en_US/base' => '19075 s2 r s2 r',   # 24 Mar 2022
+# '3a393eba/player_ias.vflset/en_US/base' => '19079 r w31 s2 w27 s2 w70 r s2 r',# 28 Mar 2022
+# '1d26561d/player_ias.vflset/en_US/base' => '19081 s2 r w40 s1', # 30 Mar 2022
+# '449ea0a5/player_ias.vflset/en_US/base' => '19082 s1 w31 s1 r s2 w19 s1',# 31 Mar 2022
+# '9e50a907/player_ias.vflset/en_US/base' => '19086 w34 s2 w28 r w58',# 04 Apr 2022
+# '689586e2/player_ias.vflset/en_US/base' => '19088 r s3 w20 s1', # 06 Apr 2022
+# '3b5d5649/player_ias.vflset/en_US/base' => '19089 r s3 w17 s3', # 07 Apr 2022
+# '1e29bfc0/player_ias.vflset/en_US/base' => '19093 w43 s3 r w47 s2 w57',# 11 Apr 2022
+# '0c665041/player_ias.vflset/en_US/base' => '19095 r w38 r w46 s1 r w64 s1 r',# 13 Apr 2022
+# 'fae06c11/player_ias.vflset/en_US/base' => '19096 w64 s1 r',    # 14 Apr 2022
+# '19eb72e4/player_ias.vflset/en_US/base' => '19100 w17 w18 w3 r w69 r w23',# 18 Apr 2022
+# 'ae36df5c/player_ias.vflset/en_US/base' => '19102 r s1 r w65 r s3 r',# 20 Apr 2022
+# '534c466c/player_ias.vflset/en_US/base' => '19103 s2 w34 s2 w35 r',# 21 Apr 2022
+# '596ef930/player_ias.vflset/en_US/base' => '19107 s1 r w37 w27 w11',# 25 Apr 2022
+# 'fe8185e7/player_ias.vflset/en_US/base' => '19109 s2 r s2 w33 s1 r w19',# 27 Apr 2022
+# '9cdfefcf/player_ias.vflset/en_US/base' => '19110 s2 r w44 s2 r w29 w32',# 28 Apr 2022
+# 'dfe7ea14/player_ias.vflset/en_US/base' => '19114 w50 w22 s2 r s3 w25 r s1 w52',# 02 May 2022
+# '7e5c03a3/player_ias.vflset/en_US/base' => '19115 s2 w25 w49 r s2',# 03 May 2022
+# 'a4d8b401/player_ias.vflset/en_US/base' => '19117 s2 r s2 r s3 r s3 r',# 05 May 2022
+# '53aba266/player_ias.vflset/en_US/base' => '19121 w34 s1 r s1 r s3 r',# 09 May 2022
+# '8a298c38/player_ias.vflset/en_US/base' => '19123 w14 w14 w18 w47 w21 w61 w42 w17 r',# 11 May 2022
+# '00e475bf/player_ias.vflset/en_US/base' => '19124 w65 w31 r s2 r',# 12 May 2022
+# '9c7ce883/player_ias.vflset/en_US/base' => '19128 w68 r w68 r s2 w39 s1',# 16 May 2022
+# '3b04fdc7/player_ias.vflset/en_US/base' => '19130 w56 w46 s2 w46',# 18 May 2022
+# 'ec0ced91/player_ias.vflset/en_US/base' => '19131 r w66 w44 s2 w28 w67 s3',# 19 May 2022
+# 'c5a4daa1/player_ias.vflset/en_US/base' => '19135 w55 w18 w21 s1 w53',# 23 May 2022
+# 'd1783cbe/player_ias.vflset/en_US/base' => '19137 s3 r s1 w63', # 25 May 2022
+# 'c403842a/player_ias.vflset/en_US/base' => '19138 w54 s1 w18 s2 r s1 w6',# 26 May 2022
+# '02208bb4/player_ias.vflset/en_US/base' => '19144 s3 r w48',    # 01 Jun 2022
+# '966d033c/player_ias.vflset/en_US/base' => '19149 w50 s3 w64 w11 w42 w41 s2',# 06 Jun 2022
+# 'd97f25df/player_ias.vflset/en_US/base' => '19151 s1 w28 r s3 w24 w42 w44',# 08 Jun 2022
+# '23010b46/player_ias.vflset/en_US/base' => '19152 w54 r s2 w65 w56 w53 s3 w4 s2',# 09 Jun 2022
+# '5dedc3ae/player_ias.vflset/en_US/base' => '19156 w6 w21 r s2 r s2 w69 r s2',# 13 Jun 2022
+# 'df5197e2/player_ias.vflset/en_US/base' => '19157 w68 w11 w8 w38',# 14 Jun 2022
+# 'f05de49d/player_ias.vflset/en_US/base' => '19159 w21 s3 w6',   # 16 Jun 2022
+# '9017ba60/player_ias.vflset/en_US/base' => '19166 r s3 w1 s1 w13 r s1',# 23 Jun 2022
+# '9c24c545/player_ias.vflset/en_US/base' => '19167 w69 s3 r s2 r s1 w46 s3 r',# 24 Jun 2022
+# '60c2da65/player_ias.vflset/en_US/base' => '19170 w3 s3 r s1',  # 27 Jun 2022
+# 'bc3f94c3/player_ias.vflset/en_US/base' => '19172 w69 r s1 w58 s2 r',# 29 Jun 2022
+# '0e7373c2/player_ias.vflset/en_US/base' => '19173 r s3 w23 s3 r',# 30 Jun 2022
+# '132602e8/player_ias.vflset/en_US/base' => '19184 s3 w11 s1 r w12 r w47',# 11 Jul 2022
+# '17327fbd/player_ias.vflset/en_US/base' => '19186 w23 w30 s3 r',# 13 Jul 2022
+# 'dfd2e197/player_ias.vflset/en_US/base' => '19187 s3 r w55 s3 r s3 w48 w17 w43',# 14 Jul 2022
+# '9504bca9/player_ias.vflset/en_US/base' => '19191 s3 r w70 w62 w44 s1',# 18 Jul 2022
+# '011af516/player_ias.vflset/en_US/base' => '19193 r w25 r w16 s3 w16 r',# 20 Jul 2022
+# 'afeb58ff/player_ias.vflset/en_US/base' => '19194 r w20 w3 s2', # 21 Jul 2022
+# '5784b7e4/player_ias.vflset/en_US/base' => '19198 w66 s2 w11',  # 25 Jul 2022
+# '240bde48/player_ias.vflset/en_US/base' => '19200 s3 w48 r s2 r s3 r',# 27 Jul 2022
+# 'c8b8a173/player_ias.vflset/en_US/base' => '19201 w42 s3 w48 r',# 28 Jul 2022
+# '7a7465f5/player_ias.vflset/en_US/base' => '19205 w12 s2 w62',  # 01 Aug 2022
+# '7802ea37/player_ias.vflset/en_US/base' => '19207 s1 r s1 w28', # 03 Aug 2022
+# '2fd212f2/player_ias.vflset/en_US/base' => '19208 w35 r s3 r w45 w42 s3 w18',# 04 Aug 2022
+# '0d77e7db/player_ias.vflset/en_US/base' => '19212 w2 s1 r s3',  # 08 Aug 2022
+# '4c3f79c5/player_ias.vflset/en_US/base' => '19215 s1 w50 s1 r w37 r',# 11 Aug 2022
+# 'c81bbb4a/player_ias.vflset/en_US/base' => '19219 w23 r s2 w63 s1 w37 w6 r',# 15 Aug 2022
+# '1f7d5369/player_ias.vflset/en_US/base' => '19221 s2 w51 w36 r s2 r w15 w57',# 17 Aug 2022
+# '009f1d77/player_ias.vflset/en_US/base' => '19222 w53 s1 r s1 w65 w61',# 18 Aug 2022
+# '0c356943/player_ias.vflset/en_US/base' => '19226 r w10 w69 w6 r s3 w27 w47 s3',# 22 Aug 2022
+# 'dc0c6770/player_ias.vflset/en_US/base' => '19228 s1 r s2 w64 r w1 s1 w34',# 24 Aug 2022
+# 'c2199353/player_ias.vflset/en_US/base' => '19229 w68 r s1 r s2 w31 w21 r w65',# 25 Aug 2022
+# '113ca41c/player_ias.vflset/en_US/base' => '19233 s3 r w23 r s3 r w14 r',# 29 Aug 2022
+# 'c57c113c/player_ias.vflset/en_US/base' => '19235 w29 r s1 w30 s2 r s2',# 31 Aug 2022
+# '5a3b6271/player_ias.vflset/en_US/base' => '19236 r s3 r s3',   # 01 Sep 2022
+# 'c16db54a/player_ias.vflset/en_US/base' => '19237 r s2 r',      # 02 Sep 2022
+# 'a7eb1f5d/player_ias.vflset/en_US/base' => '19240 r w3 w60 r s1 w53 s2 w42 s1',# 05 Sep 2022
+# 'f96f6702/player_ias.vflset/en_US/base' => '19242 w30 s1 w26 w11 s2',# 07 Sep 2022
+# '977792fa/player_ias.vflset/en_US/base' => '19243 w23 w36 s2 r s2 r',# 08 Sep 2022
+# '92f199c8/player_ias.vflset/en_US/base' => '19247 r w36 r s2 r s2 r',# 12 Sep 2022
+# 'ec3f41f6/player_ias.vflset/en_US/base' => '19249 s3 w38 r w39 w37 r s1 w57',# 14 Sep 2022
+# 'a97e97de/player_ias.vflset/en_US/base' => '19250 r s2 w5 r',   # 15 Sep 2022
+# '7577aaa2/player_ias.vflset/en_US/base' => '19254 w63 s1 r',    # 19 Sep 2022
+# '64947e15/player_ias.vflset/en_US/base' => '19256 s1 r s3 r s2 r',# 21 Sep 2022
+# 'abfb84fe/player_ias.vflset/en_US/base' => '19257 w38 s3 w11 w34 w57',# 22 Sep 2022
+# 'bd1343fa/player_ias.vflset/en_US/base' => '19261 s2 r w65 r s1',# 26 Sep 2022
+# '5248e50a/player_ias.vflset/en_US/base' => '19263 w68 w39 w16 w15 w61 w44',# 28 Sep 2022
+# 'a336babc/player_ias.vflset/en_US/base' => '19264 r w44 w7 s2', # 29 Sep 2022
+# '374003a5/player_ias.vflset/en_US/base' => '19268 r s1 w41 r w41 s3 r w51',# 03 Oct 2022
+# '55fdc514/player_ias.vflset/en_US/base' => '19270 w1 r s2 w15 s2',# 05 Oct 2022
+# '17ab0793/player_ias.vflset/en_US/base' => '19271 r w52 w11 w25 w11 r s3 w49 s2',# 06 Oct 2022
+# '7a062b77/player_ias.vflset/en_US/base' => '19275 w19 r s3 w32 w2 w31',# 10 Oct 2022
+# 'f11bc515/player_ias.vflset/en_US/base' => '19277 s1 r s1 w33 s1 w47 w44 s3 r',# 12 Oct 2022
+# '1f77e565/player_ias.vflset/en_US/base' => '19278 w48 w43 s2 r s2 w39 w19 s1 r',# 13 Oct 2022
+# 'a25d4acf/player_ias.vflset/en_US/base' => '19282 w41 s1 r',    # 17 Oct 2022
+# '24c6f8bd/player_ias.vflset/en_US/base' => '19284 w14 s1 r s3', # 19 Oct 2022
+# '4bbf8bdb/player_ias.vflset/en_US/base' => '19285 r w6 w45 s3', # 20 Oct 2022
+# '64588dad/player_ias.vflset/en_US/base' => '19291 w14 w14 r s2',# 26 Oct 2022
+# '19fc75cf/player_ias.vflset/en_US/base' => '19292 r w52 w34',   # 27 Oct 2022
+# '03bec62d/player_ias.vflset/en_US/base' => '19296 r s1 r w16 s2 r w29 w51',# 31 Oct 2022
+# 'c4225c42/player_ias.vflset/en_US/base' => '19303 w60 w56 w43 s3 w55',# 07 Nov 2022
+# 'b50b69c9/player_ias.vflset/en_US/base' => '19310 w55 r s2',    # 14 Nov 2022
+# '6870f412/player_ias.vflset/en_US/base' => '19312 w42 s1 w23 r s3 w52 s2',# 16 Nov 2022
+# '041a7965/player_ias.vflset/en_US/base' => '19313 s3 w43 r s1 w33 r',# 17 Nov 2022
+# '4eb6b35d/player_ias.vflset/en_US/base' => '19317 s2 r s3 r s1',# 21 Nov 2022
+# 'e87a69df/player_ias.vflset/en_US/base' => '19324 w25 s2 r s1 w26',# 28 Nov 2022
+# 'd75422b4/player_ias.vflset/en_US/base' => '19326 w51 w29 r s1 r w12 s3 w51',# 30 Nov 2022
+# 'dab28f34/player_ias.vflset/en_US/base' => '19327 r w54 r s2 r w1 r s3 r',# 01 Dec 2022
+# 'ac058a09/player_ias.vflset/en_US/base' => '19331 s1 r s1 w69 w17 s3 r w45',# 05 Dec 2022
+# '72d3c60a/player_ias.vflset/en_US/base' => '19333 w60 r w13 r', # 07 Dec 2022
+# 'e96685ea/player_ias.vflset/en_US/base' => '19338 w50 s3 w23 r w44',# 12 Dec 2022
+# 'a0703e0f/player_ias.vflset/en_US/base' => '19340 w2 s1 r s2 w67 w41 r w46 s2',# 14 Dec 2022
+# '34f9b71c/player_ias.vflset/en_US/base' => '19341 w61 r s2 r w46 s1',# 15 Dec 2022
+# '21149d65/player_ias.vflset/en_US/base' => '19345 w9 s3 r w23 w35 w8 s2 r',# 19 Dec 2022
+# 'e5f6cbd5/player_ias.vflset/en_US/base' => '19359 w29 w66 s2 w17',# 02 Jan 2023
+# 'd759e46a/player_ias.vflset/en_US/base' => '19366 w43 s1 r',    # 09 Jan 2023
+# '4248d311/player_ias.vflset/en_US/base' => '19369 r s2 r s3',   # 12 Jan 2023
+# 'dac945fd/player_ias.vflset/en_US/base' => '19387 w20 s1 r s3 w48 r s2 w54',# 30 Jan 2023
+# '97ea7458/player_ias.vflset/en_US/base' => '19389 s1 w60 r w45 s3 w28 r',# 01 Feb 2023
+# 'f565d246/player_ias.vflset/en_US/base' => '19394 s3 w35 w24 s3 w23 r w47 r',# 06 Feb 2023
+# 'd405f6b4/player_ias.vflset/en_US/base' => '19401 w51 r s3 r s1',# 13 Feb 2023
+# '1cbba2b4/player_ias.vflset/en_US/base' => '19403 s1 r w38 r s1 w11 s2',# 15 Feb 2023
+# '11e3a4ec/player_ias.vflset/en_US/base' => '19404 w20 w8 w3 w62 w50 r s3 w70 r',# 16 Feb 2023
+# '9419f2ea/player_ias.vflset/en_US/base' => '19412 w36 s2 w6 w60 w22 w15 r',# 24 Feb 2023
+# 'a897053d/player_ias.vflset/en_US/base' => '19415 w61 r s3 w53 r w24 r w17 s1',# 27 Feb 2023
+# '7862ca1f/player_ias.vflset/en_US/base' => '19417 w17 s1 r w65',# 01 Mar 2023
+# '21246a91/player_ias.vflset/en_US/base' => '19422 w3 r w23 s2 w38 r w26 w22',# 06 Mar 2023
+# '837bca82/player_ias.vflset/en_US/base' => '19429 s3 w68 w53 s2 r w50',# 13 Mar 2023
+# '59acb1f3/player_ias.vflset/en_US/base' => '19431 r s2 w24',    # 15 Mar 2023
+# 'c64a5d56/player_ias.vflset/en_US/base' => '19436 w39 s3 r w23 w36 s3 r w44',# 20 Mar 2023
+# 'ace4d669/player_ias.vflset/en_US/base' => '19438 w7 r s1 w68 w53 s3',# 22 Mar 2023
+# '931a8913/player_ias.vflset/en_US/base' => '19443 w56 s2 r w57 w28 r',# 27 Mar 2023
+# 'fa7eb95c/player_ias.vflset/en_US/base' => '19445 r w1 w1 w4 w36 r s1',# 29 Mar 2023
+# '7da8dd3e/player_ias.vflset/en_US/base' => '19450 r s2 r w17',  # 03 Apr 2023
+# '248ded94/player_ias.vflset/en_US/base' => '19457 w9 s1 r s3 r',# 10 Apr 2023
+# '36754c51/player_ias.vflset/en_US/base' => '19459 w19 w16 r s1 r s2 r',# 12 Apr 2023
+# '6f20102c/player_ias.vflset/en_US/base' => '19464 w45 w53 r s2 w27',# 17 Apr 2023
+# 'd87d581f/player_ias.vflset/en_US/base' => '19466 s1 r s3 r w63 r w14 r',# 19 Apr 2023
+# '73d31b49/player_ias.vflset/en_US/base' => '19471 r s2 w41 w52 r w17 r w70 r',# 24 Apr 2023
+# '0c487f05/player_ias.vflset/en_US/base' => '19473 r s1 r w47 s1',# 26 Apr 2023
   'c353919c/player_ias.vflset/en_US/base' => '19478 w23 r s1',    # 01 May 2023
   '50cf60f0/player_ias.vflset/en_US/base' => '19480 w38 r w46 s3 r s1 r s3',# 03 May 2023
   '65ceadf9/player_ias.vflset/en_US/base' => '19485 w4 r s2 r w19 s2 r s2 w41',# 08 May 2023
@@ -3169,7 +3191,12 @@ my %ciphers = (
   '41b8bed0/player_ias.vflset/en_US/base' => '19499 r s2 w55 r',  # 22 May 2023
   'bbe1b497/player_ias.vflset/en_US/base' => '19501 s1 r w53 s1 w31 s3 r s2',# 24 May 2023
   'f55759b8/player_ias.vflset/en_US/base' => '19508 s2 w67 s2 w20 r',# 31 May 2023
+  'b128dda0/player_ias.vflset/en_US/base' => '19513 r s3 r w66 s2 w12',# 05 Jun 2023
+  '8c7583ff/player_ias.vflset/en_US/base' => '19515 w47 r w26',   # 07 Jun 2023
 );
+
+# June 2023: https://github.com/zerodytrash/YouTube-Internal-Clients
+my $youtubei_api_key = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
 
 
 my $cipher_warning_printed_p = 0;
@@ -3813,6 +3840,11 @@ sub youtube_parse_urlmap($$$;$) {
 #           "videoId": "$vid" }
 #
 # But that doesn't return underlying formats for age-restricted videos either.
+#
+# June 2023: Aha, the trick is that only some of those "internal clients" can
+# bypass the age gate, so you need to use the right key *and* clientName.
+# "TVHTML5_SIMPLY_EMBEDDED_PLAYER" seems to be a good one.
+# See https://github.com/zerodytrash/YouTube-Internal-Clients
 
 
 
@@ -4160,6 +4192,65 @@ sub load_youtube_formats_html($$$) {
 }
 
 
+# Loads /youtubei/ to extract the video formats.
+# Populates $fmts and returns how many it parsed.
+#
+sub load_youtube_formats_youtubei($$$$$) {
+  my ($id, $url, $sts, $cipher, $fmts) = @_;
+  my $post_data = (join "\n",
+                   ('{',
+                    '  "context": {',
+                    '   "client": {',
+                    '    "hl": "en",',
+                    '    "gl": "US",',
+                    '    "clientName": "TVHTML5_SIMPLY_EMBEDDED_PLAYER",',
+                    '    "clientVersion": "2.0",',
+                    '    "clientScreen": "WATCH",',
+                    '    "androidSdkVersion": 31',
+                    '   },',
+                    '   "thirdParty": {',
+                    '    "embedUrl": "https://www.youtube.com/"',
+                    '   }',
+                    '  },',
+                    '  "videoId": "' . $id . '",',
+                    '  "playbackContext": {',
+                    '   "contentPlaybackContext": {',
+                    '    "signatureTimestamp": ' . ($sts || 0),
+                    '   }',
+                    '  },',
+                    '  "racyCheckOk": true,',
+                    '  "contentCheckOk": true',
+                    '}'));
+  $post_data =~ s/\s+//gs;
+  my $info_url = ('https://www.youtube.com/youtubei/v1/player' .
+                  '?key=' . $youtubei_api_key .
+                  '&prettyPrint=false');
+  my ($http, $head, $body) = post_url ($info_url, $post_data);
+  my $err = (check_http_status ($id, $url, $http, 0) ? undef : $http);
+  return 0 if $err;  # Discards HTTP error message
+
+  my ($title) = ($body =~ m@"title":\s*"(.*?)"@s);
+  utf8::decode ($title) if $title;
+
+  $fmts->{title}  = $title  unless defined($fmts->{title});
+  $fmts->{cipher} = $cipher unless defined($fmts->{cipher});
+
+  my @sigs = ();
+  my $count = 0;
+  foreach my $key ('formats', 'adaptiveFormats') {
+    if ($body =~ m@"$key":\s*\[(.*?)\]@si) {
+      my $elts = $1;
+      $elts =~ s@\s*,\s*(\{\s*"itag":)@\001$1@gs;
+      foreach my $f (split (/\001/, $elts)) {
+        $count += youtube_parse_urlmap ($id, $f, $cipher, $fmts);
+      }
+    }
+  }
+
+  return $count;
+}
+
+
 # Loads various versions of get_video_info to extract the video formats.
 # Populates $fmts and returns $error_message.
 #
@@ -4226,9 +4317,9 @@ sub load_youtube_formats_video_info($$$) {
     foreach my $extra (@extra_parameters) {
 
       my $info_url = $info_url_1 . $extra;
-
       my ($http, $head);
       ($http, $head, $body) = get_url ($info_url);
+
       my $err2 = (check_http_status ($id, $url, $http, 0) ? undef : $http);
       $err = $err2 unless $err;
 
@@ -4319,6 +4410,14 @@ sub load_youtube_formats_video_info($$$) {
     }
     last if $done;
     sleep (1);
+  }
+
+  if ($err) {
+    # If that didn't work, try the "internal player" API.
+    my $count = load_youtube_formats_youtubei ($id, $url, $sts, $cipher,
+                                               $fmts);
+    $err = undef if ($count >= 3);
+    $title = $fmts->{title} unless $title;
   }
 
   if ($err) {
