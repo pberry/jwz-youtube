@@ -72,7 +72,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1964 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1971 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -3193,6 +3193,12 @@ my %ciphers = (
   'f55759b8/player_ias.vflset/en_US/base' => '19508 s2 w67 s2 w20 r',# 31 May 2023
   'b128dda0/player_ias.vflset/en_US/base' => '19513 r s3 r w66 s2 w12',# 05 Jun 2023
   '8c7583ff/player_ias.vflset/en_US/base' => '19515 w47 r w26',   # 07 Jun 2023
+  '0c9b5d20/player_ias.vflset/en_US/base' => '19520 r w57 s3 r s3 w20',# 12 Jun 2023
+  '6ed0d907/player_ias.vflset/en_US/base' => '19522 r s1 r w56 s3 r s2',# 14 Jun 2023
+  'b7910ca8/player_ias.vflset/en_US/base' => '19529 w31 w24 r w54 r',# 21 Jun 2023
+  '71547d26/player_ias.vflset/en_US/base' => '19534 r w30 w31 r s2 r s3 w52 w26',# 26 Jun 2023
+  '23604418/player_ias.vflset/en_US/base' => '19536 w35 r s1 w25 r s3 w54 s1 w52',# 28 Jun 2023
+  '1dda5629/player_ias.vflset/en_US/base' => '19543 w35 r s3 r',  # 05 Jul 2023
 );
 
 # June 2023: https://github.com/zerodytrash/YouTube-Internal-Clients
