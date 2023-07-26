@@ -72,7 +72,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1971 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1977 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -3199,6 +3199,11 @@ my %ciphers = (
   '71547d26/player_ias.vflset/en_US/base' => '19534 r w30 w31 r s2 r s3 w52 w26',# 26 Jun 2023
   '23604418/player_ias.vflset/en_US/base' => '19536 w35 r s1 w25 r s3 w54 s1 w52',# 28 Jun 2023
   '1dda5629/player_ias.vflset/en_US/base' => '19543 w35 r s3 r',  # 05 Jul 2023
+  'f2f137c6/player_ias.vflset/en_US/base' => '19548 r w19 w22 w66 r w36',# 10 Jul 2023
+  '4cc5d082/player_ias.vflset/en_US/base' => '19550 s3 r w4 r s1 r s3',# 12 Jul 2023
+  '30857836/player_ias.vflset/en_US/base' => '19555 r s3 r w21 s2 w44 w1 w25 s1',# 17 Jul 2023
+  '8e83803a/player_ias.vflset/en_US/base' => '19557 w42 w14 w54 s2 r w27 s3',# 19 Jul 2023
+  'd0936ad4/player_ias.vflset/en_US/base' => '19562 w4 s3 r',     # 24 Jul 2023
 );
 
 # June 2023: https://github.com/zerodytrash/YouTube-Internal-Clients
@@ -7248,6 +7253,12 @@ sub main() {
     guess_cipher (undef, $guessp - 1);
     exit (0);
   }
+
+  # Avoid new error, "While in a single-byte locale, a multi-byte character
+  # was encountered".
+  my $locale = setlocale (LC_ALL) || 'C';
+  setlocale (LC_ALL, "$locale.UTF-8")
+    unless ($locale =~ m/UTF-8/si);
 
   # 28-Jan-2022: Does this help? I dunno, maybe? Getting a lot of
   # "30 seconds with no data" timeouts with odd formats when doing

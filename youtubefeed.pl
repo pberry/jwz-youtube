@@ -39,7 +39,7 @@ use IPC::Open2;
 use open ":encoding(utf8)";
 
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.78 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.79 $' =~ m/\s(\d[.\d]+)\s/s);
 
 my $verbose = 0;
 my $debug_p = 0;
@@ -477,6 +477,9 @@ print STDERR "##<<\n";
       # Omit twitter URLs in a Youtube comment
       next if ($url =~ m@\byoutube\.com/@s &&
                $u =~ m@\btwitter\.com/@s);
+
+      # 2023: Omit twitter entirely
+      next if ($u =~ m@\btwitter\.com/@s);
 
       next if ($dups{$u});
       $dups{$u} = 1;
