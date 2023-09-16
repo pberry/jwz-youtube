@@ -72,7 +72,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1977 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.1992 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -3204,6 +3204,20 @@ my %ciphers = (
   '30857836/player_ias.vflset/en_US/base' => '19555 r s3 r w21 s2 w44 w1 w25 s1',# 17 Jul 2023
   '8e83803a/player_ias.vflset/en_US/base' => '19557 w42 w14 w54 s2 r w27 s3',# 19 Jul 2023
   'd0936ad4/player_ias.vflset/en_US/base' => '19562 w4 s3 r',     # 24 Jul 2023
+  '0e6aaa83/player_ias.vflset/en_US/base' => '19563 w3 r w23 w12 s3 w36 s2',# 25 Jul 2023
+  '2363d0d2/player_ias.vflset/en_US/base' => '19569 w4 w1 r s1 w14 s1 r w22',# 31 Jul 2023
+  'f98908d1/player_ias.vflset/en_US/base' => '19571 s3 r w50 r w44 w26 r',# 02 Aug 2023
+  '4eae42b1/player_ias.vflset/en_US/base' => '19576 w46 r s2',    # 07 Aug 2023
+  '3cd2d050/player_ias.vflset/en_US/base' => '19578 w62 w62 r w18 r s1',# 09 Aug 2023
+  'da7c2a60/player_ias.vflset/en_US/base' => '19583 w9 w53 s2',   # 14 Aug 2023
+  'f980f2a9/player_ias.vflset/en_US/base' => '19585 r w37 r s1',  # 16 Aug 2023
+  '21812a9c/player_ias.vflset/en_US/base' => '19590 r s2 w18 r s2 w45 r',# 21 Aug 2023
+  'c153b631/player_ias.vflset/en_US/base' => '19593 r s3 w14',    # 24 Aug 2023
+  '16f9263d/player_ias.vflset/en_US/base' => '19597 s1 r s1 r w3 r s3 r s3',# 28 Aug 2023
+  '0a835141/player_ias.vflset/en_US/base' => '19599 w49 w20 w25 s1',# 30 Aug 2023
+  '7ee36b0e/player_ias.vflset/en_US/base' => '19605 r s1 r',      # 05 Sep 2023
+  'de91d1cf/player_ias.vflset/en_US/base' => '19611 r s1 r',      # 11 Sep 2023
+  'afd1b6e5/player_ias.vflset/en_US/base' => '19612 w27 w25 w44 s1 r w4 s2 r',# 12 Sep 2023
 );
 
 # June 2023: https://github.com/zerodytrash/YouTube-Internal-Clients
@@ -3981,6 +3995,7 @@ my $blocked_re = join ('|',
                         'video has not yet premiered',
                         'live event will begin in',
                         'live event has ended',
+                        'available to this channel\'s members',
                         '^[^:]+: exists: ',
                         'no pre-muxed format',
                         # Muxer failures are permanently fatal
@@ -4265,8 +4280,8 @@ sub load_youtube_formats_youtubei($$$$$) {
 # Loads various versions of get_video_info to extract the video formats.
 # Populates $fmts and returns $error_message.
 #
-sub load_youtube_formats_video_info($$$) {
-  my ($id, $url, $fmts) = @_;
+sub load_youtube_formats_video_info($$$$) {
+  my ($id, $url, $fmts, $ping_p) = @_;
 
   my $cipher = $fmts->{cipher};
   my $sts = undef;
@@ -4423,8 +4438,10 @@ sub load_youtube_formats_video_info($$$) {
     sleep (1);
   }
 
-  if ($err) {
+  if ($err && !$ping_p) {
     # If that didn't work, try the "internal player" API.
+    # Don't do this with "--ping" because we want to fail
+    # if it is not embeddable.
     my $count = load_youtube_formats_youtubei ($id, $url, $sts, $cipher,
                                                $fmts);
     $err = undef if ($count >= 3);
@@ -4511,12 +4528,12 @@ sub load_youtube_formats($$$) {
 
   my ($err1, $err2);
   if ($ping_p && $total_retries == 0) {
-    $err1 = load_youtube_formats_video_info ($id, $url, \%fmts);
+    $err1 = load_youtube_formats_video_info ($id, $url, \%fmts, $ping_p);
   } elsif ($html_first_p) {
     $err1 = load_youtube_formats_html       ($id, $url, \%fmts);
-    $err2 = load_youtube_formats_video_info ($id, $url, \%fmts);
+    $err2 = load_youtube_formats_video_info ($id, $url, \%fmts, $ping_p);
   } else {
-    $err1 = load_youtube_formats_video_info ($id, $url, \%fmts);
+    $err1 = load_youtube_formats_video_info ($id, $url, \%fmts, $ping_p);
     $err2 = load_youtube_formats_html       ($id, $url, \%fmts);
   }
 
@@ -5746,6 +5763,8 @@ sub munge_title($) {
   $title =~ s/^Youtube$//si;
   $title =~ s/ on Vimeo\s*$//si;
   $title =~ s/Broadcast Yourself\.?$//si;
+
+ #$title =~ s/(\s+\#[^\s]+)+$//gs;  # Remove trailing hashtags
 
   $title =~ s/\b ( ( (in \s*)? 
                      (
