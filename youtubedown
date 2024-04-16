@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# Copyright © 2007-2023 Jamie Zawinski <jwz@jwz.org>
+# Copyright © 2007-2024 Jamie Zawinski <jwz@jwz.org>
 #
 # Permission to use, copy, modify, distribute, and sell this software and its
 # documentation for any purpose is hereby granted without fee, provided that
@@ -9,9 +9,29 @@
 # software for any purpose.  It is provided "as is" without express or
 # implied warranty.
 #
-# Given a YouTube, Vimeo, Instagram or Tumblr video URL,
-# downloads the corresponding MP4 file.  The name of the file will be derived
-# from the title of the video.
+# Given a YouTube, Vimeo, Instagram or Tumblr video URL, downloads the
+# corresponding MP4 file.  The name of the file will be derived from the title
+# of the video.
+#
+# For playlists, it will download each video to its own file.
+#
+# You can also use this as a bookmarklet, so that you can have a toolbar
+# button or bookmark that saves the video you are currently watching to
+# your desktop. See https://www.jwz.org/hacks/youtubedown.cgi for instructions
+# on how to do that.
+#
+# If you are wondering "why should I use this instead of "youtube-dl / yt-dlp",
+# I don't really have an answer for you.  Those packages, and this one, are of
+# approximately the same age.  The other ones support more sites than this one
+# does, but this one is mine, and I am used to how it works, so I endeavor to
+# keep it functional.  Maybe you also will like it more for whatever reason.
+# With the ebb and flow of time and DRM countermeasures, one might sometimes
+# work better than the other.  Use what works for you!
+#
+# Also, fuck Google.  Fuck them entirely.
+#
+#
+# Command line arguments:
 #
 #  --title "STRING"  Use this as the title instead.
 #  --prefix "STRING" Prepend the title with this.
@@ -51,13 +71,6 @@
 #
 # Note: if you have ffmpeg < 2.2, upgrade to something less flaky.
 #
-# For playlists, it will download each video to its own file.
-#
-# You can also use this as a bookmarklet, so that you can have a toolbar
-# button or bookmark that saves the video you are currently watching to
-# your desktop. See https://www.jwz.org/hacks/youtubedown.cgi for instructions
-# on how to do that.
-#
 # Created: 25-Apr-2007.
 
 require 5;
@@ -72,7 +85,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.1992 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.2063 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -255,6 +268,33 @@ sub draw_progress($$$) {
   $progress_rubout = '' if ($eof);
   $progress_last = 0 if ($eof);
 }
+
+
+
+##############################################################################
+#
+# Before you read any further, you should know what you're getting into here.
+# This is a path of madness that you walk.  Below you will find two different
+# custom-coded URL-loading network layers, one using a single socket with
+# keep-alive and the other using a gang of pseudo-threads for a parallel
+# assault on the target server, and yes, we need both; Perl code that parses
+# and reconstructs minimized and intentionally obfuscated JavaScript code, and
+# no I'm not joking; self-modifying code, still not joking; ciphers cosplaying
+# as cryptography; three (or maybe four) different ways of parsing a list of
+# available video formats out of HTML pages and out of several other terrible,
+# undocumented, reverse-engineered endpoints; ever-flowing countermeasures to
+# work around age gates; heuristics for deciding which of possibly hundreds of
+# audio and video formats are the "best" ones; heuristics for translating
+# terribly-written video titles into something more sensible to use as a file
+# name; and some of the most vile and terrifying use of regular expressions
+# you will ever see in all your days.  And yes, it is also all in one source
+# file because fuck you that's why.  I committed these terrible acts of coding
+# in anger and self defense and I have no regrets.
+#
+# Turn back now.  Here be monsters.
+#
+##############################################################################
+
 
 
 
@@ -1068,8 +1108,9 @@ sub check_http_status($$$$) {
 
 # Returns a qurl (queue url) object, not yet connected.
 #
-sub qurl_make($$$$$$) {
-  my ($url, $seek_byte, $start_byte, $max_bytes, $bwlimit, $filename) = @_;
+sub qurl_make($$$$$$$) {
+  my ($url, $seek_byte, $start_byte, $max_bytes,
+      $bwlimit, $filename, $retry_counts) = @_;
   my ($proto, $host, $port, $path) = url_split ($url);
   my %qurl = ( 
     id            => 0,
@@ -1090,7 +1131,18 @@ sub qurl_make($$$$$$) {
     bytes_written => 0,
     eof           => 0,
     keepalive     => $keepalive_p,
+    retry_counts  => $retry_counts || {},
   );
+
+  if ($max_bytes && $max_bytes > 0) {
+    my $max_chunk_retry_count = 3;
+    my $chunk = "$start_byte:$max_bytes";
+    if (++$qurl{retry_counts}{$chunk} > $max_chunk_retry_count) {
+      error("could not get any progress downloading chunk '$chunk' "
+        . "after $qurl{retry_counts}{$chunk} attempts");
+    }
+  }
+
   return \%qurl;
 }
 
@@ -1196,10 +1248,12 @@ sub qurl_read_chunk($) {
     }
   }
 
-  if (!$qurl->{eof} && $qurl->{write_sock} && $qurl->{buf}) {
+  if (!$qurl->{eof} && $qurl->{write_sock} && length($qurl->{buf})) {
     my $n = syswrite ($qurl->{write_sock}, $qurl->{buf});
     error ("file " . $qurl->{filename} . ": " . ($! || "unknown error"))
-      if (($n || 0) <= 0);
+      unless defined $n;
+    error ("file " . $qurl->{filename} . ": written $n bytes instead of " . length($qurl->{buf}))
+      unless $n == length($qurl->{buf});
     $qurl->{bytes_written} += $n;
     $qurl->{buf} = '';
     print STDERR "  $id wrote $n (" . $qurl->{bytes_written} . ")\n"
@@ -1217,7 +1271,10 @@ sub qurl_read_chunk($) {
   if ($qurl->{eof}) {
 
     if ($qurl->{read_sock}) {
-      if ($qurl->{keepalive} &&
+      # Disabled keepalive: it seems that the keepalive timeout will always
+      # have expired by the time we get to the end of any reasonably large
+      # file chunk.
+      if (0 && $qurl->{keepalive} &&
           $qurl->{head} =~ m/^Connection: keep-alive/mi &&
           $qurl->{head} =~ m/^Content-Length: /mi &&
           !$keepalive{$qurl->{proto} . '://' . $qurl->{host}}) {
@@ -1226,7 +1283,7 @@ sub qurl_read_chunk($) {
         $keepalive{$qurl->{proto} . '://' . $qurl->{host}} =
           $qurl->{read_sock};
       } else {
-        close ($qurl->{read_sock}) ||
+        close ($qurl->{read_sock}) || $!{EPIPE} ||
           error ("close " . $qurl->{url} . ": $!");
         $qurl->{read_sock} = undef;
       }
@@ -1259,7 +1316,8 @@ sub get_url_1_parallel($;$$$$$$$$$) {
 
   # Open the connection and send a GET, for the full range.
   # This is how we learn the size of the full document.
-  my $qurl0 = qurl_make ($url, 0, $start_byte, $max_bytes, $bwlimit, $to_file);
+  my $qurl0 = qurl_make ($url, 0, $start_byte, $max_bytes,
+                         $bwlimit, $to_file, undef);
   qurl_get ($qurl0, $referer, $start_byte, $max_bytes, $extra_headers,
             $post_data);
 
@@ -1325,7 +1383,8 @@ sub get_url_1_parallel($;$$$$$$$$$) {
     my $size = $chunksize;
     $size = $remaining if ($remaining < $size);
     if ($size > 0) {
-      my $qurl = qurl_make ($url, $seek, $byte, $size, $bwlimit, $to_file);
+      my $qurl = qurl_make ($url, $seek, $byte, $size,
+                            $bwlimit, $to_file, undef);
       $qurl->{id} = $i;
       push @pending_queue, $qurl;
       push @all_qurls, $qurl;
@@ -1369,7 +1428,25 @@ sub get_url_1_parallel($;$$$$$$$$$) {
     #
     my @q2 = ();
     foreach my $qurl (@running_queue) {
-      push @q2, $qurl unless ($qurl->{eof});
+      if ($qurl->{eof}) {
+        my $bw = $qurl->{bytes_written};
+        my $size = $qurl->{max_bytes} ? $qurl->{max_bytes} - $bw : 0;
+        if ($size > 0) {
+          my $seek = $qurl->{seek_byte} + $bw;
+          my $start = $qurl->{start_byte} + $bw;
+          my $qurl1 = qurl_make($url, $seek, $start, $size, $bwlimit,
+                                $to_file, $qurl->{retry_counts});
+          $qurl1->{id} = $i;
+          push @pending_queue, $qurl1;
+          push @all_qurls, $qurl1;
+          print STDERR "$progname: enqueued $qurl->{id} $start + $size = " .
+                       ($start + $size) . "\n"
+            if ($verbose > 3);
+          $i++;
+        }
+      } else {
+        push @q2, $qurl;
+      }
     }
     @running_queue = @q2;
 
@@ -1415,10 +1492,12 @@ sub video_file_size($) {
   my $size = (stat($file))[7];
 
   my @cmd = ($ffmpeg,
-             "-i", $file,
-             "-vframes", "0",
-             "-f", "null",
-             "/dev/null");
+             '-i', $file,
+             '-vframes', '1',	# Stop early for video files
+             '-t', '1',		# Stop early for audio files
+             '-codec', 'copy',
+             '-f', 'null',
+             '/dev/null');
   print STDERR "\n$progname: exec: '" . join("' '", @cmd) . "'\n"
     if ($verbose > 3);
   my $result = '';
@@ -1445,9 +1524,9 @@ sub video_file_size($) {
   my ($w, $h, $abr) = (0, 0, 0);
 
   ($w, $h) = ($1, $2)
-    if ($result =~ m/^\s*Stream \#.* Video:.* (\d+)x(\d+),? /m);
+    if ($result =~ m/^\s*Stream \#.*? Video:.*? (\d+)x(\d+),? /m);
   $abr = $1
-    if ($result =~ m@^\s*Duration:.* bitrate: ([\d.]+ *[kmb/s]+)@m);
+    if ($result =~ m@^\s*Duration:.*? bitrate: ([\d.]+ *[kmb/s]+)@m);
 
   $abr =~ s@/s$@ps@si;
 
@@ -1781,6 +1860,9 @@ sub video_url_size($$;$$$) {
 # It used to be that the deciphered signature was always of the form:
 # <40-chars, dot, 40-chars>, but that seems to no longer be the case as
 # of Nov 2018 or so?
+#
+# We don't actually need to save all of the old onest that are more than
+# a few months old, but I'm keeping the whole list for historical hilarity.
 #
 my %ciphers = (
 # 'vflNzKG7n' => '135957536242 s3 r s2 r s1 r w67',		  # 30 Jan 2013
@@ -3183,41 +3265,98 @@ my %ciphers = (
 # 'd87d581f/player_ias.vflset/en_US/base' => '19466 s1 r s3 r w63 r w14 r',# 19 Apr 2023
 # '73d31b49/player_ias.vflset/en_US/base' => '19471 r s2 w41 w52 r w17 r w70 r',# 24 Apr 2023
 # '0c487f05/player_ias.vflset/en_US/base' => '19473 r s1 r w47 s1',# 26 Apr 2023
-  'c353919c/player_ias.vflset/en_US/base' => '19478 w23 r s1',    # 01 May 2023
-  '50cf60f0/player_ias.vflset/en_US/base' => '19480 w38 r w46 s3 r s1 r s3',# 03 May 2023
-  '65ceadf9/player_ias.vflset/en_US/base' => '19485 w4 r s2 r w19 s2 r s2 w41',# 08 May 2023
-  'cfa9e7cb/player_ias.vflset/en_US/base' => '19487 w59 w2 s1 w16 w18 s2 r',# 10 May 2023
-  'e50626d8/player_ias.vflset/en_US/base' => '19494 s1 w12 r w54 s2',# 17 May 2023
-  '41b8bed0/player_ias.vflset/en_US/base' => '19499 r s2 w55 r',  # 22 May 2023
-  'bbe1b497/player_ias.vflset/en_US/base' => '19501 s1 r w53 s1 w31 s3 r s2',# 24 May 2023
-  'f55759b8/player_ias.vflset/en_US/base' => '19508 s2 w67 s2 w20 r',# 31 May 2023
-  'b128dda0/player_ias.vflset/en_US/base' => '19513 r s3 r w66 s2 w12',# 05 Jun 2023
-  '8c7583ff/player_ias.vflset/en_US/base' => '19515 w47 r w26',   # 07 Jun 2023
-  '0c9b5d20/player_ias.vflset/en_US/base' => '19520 r w57 s3 r s3 w20',# 12 Jun 2023
-  '6ed0d907/player_ias.vflset/en_US/base' => '19522 r s1 r w56 s3 r s2',# 14 Jun 2023
-  'b7910ca8/player_ias.vflset/en_US/base' => '19529 w31 w24 r w54 r',# 21 Jun 2023
-  '71547d26/player_ias.vflset/en_US/base' => '19534 r w30 w31 r s2 r s3 w52 w26',# 26 Jun 2023
-  '23604418/player_ias.vflset/en_US/base' => '19536 w35 r s1 w25 r s3 w54 s1 w52',# 28 Jun 2023
-  '1dda5629/player_ias.vflset/en_US/base' => '19543 w35 r s3 r',  # 05 Jul 2023
-  'f2f137c6/player_ias.vflset/en_US/base' => '19548 r w19 w22 w66 r w36',# 10 Jul 2023
-  '4cc5d082/player_ias.vflset/en_US/base' => '19550 s3 r w4 r s1 r s3',# 12 Jul 2023
-  '30857836/player_ias.vflset/en_US/base' => '19555 r s3 r w21 s2 w44 w1 w25 s1',# 17 Jul 2023
-  '8e83803a/player_ias.vflset/en_US/base' => '19557 w42 w14 w54 s2 r w27 s3',# 19 Jul 2023
-  'd0936ad4/player_ias.vflset/en_US/base' => '19562 w4 s3 r',     # 24 Jul 2023
-  '0e6aaa83/player_ias.vflset/en_US/base' => '19563 w3 r w23 w12 s3 w36 s2',# 25 Jul 2023
-  '2363d0d2/player_ias.vflset/en_US/base' => '19569 w4 w1 r s1 w14 s1 r w22',# 31 Jul 2023
-  'f98908d1/player_ias.vflset/en_US/base' => '19571 s3 r w50 r w44 w26 r',# 02 Aug 2023
-  '4eae42b1/player_ias.vflset/en_US/base' => '19576 w46 r s2',    # 07 Aug 2023
-  '3cd2d050/player_ias.vflset/en_US/base' => '19578 w62 w62 r w18 r s1',# 09 Aug 2023
-  'da7c2a60/player_ias.vflset/en_US/base' => '19583 w9 w53 s2',   # 14 Aug 2023
-  'f980f2a9/player_ias.vflset/en_US/base' => '19585 r w37 r s1',  # 16 Aug 2023
-  '21812a9c/player_ias.vflset/en_US/base' => '19590 r s2 w18 r s2 w45 r',# 21 Aug 2023
-  'c153b631/player_ias.vflset/en_US/base' => '19593 r s3 w14',    # 24 Aug 2023
-  '16f9263d/player_ias.vflset/en_US/base' => '19597 s1 r s1 r w3 r s3 r s3',# 28 Aug 2023
-  '0a835141/player_ias.vflset/en_US/base' => '19599 w49 w20 w25 s1',# 30 Aug 2023
-  '7ee36b0e/player_ias.vflset/en_US/base' => '19605 r s1 r',      # 05 Sep 2023
-  'de91d1cf/player_ias.vflset/en_US/base' => '19611 r s1 r',      # 11 Sep 2023
-  'afd1b6e5/player_ias.vflset/en_US/base' => '19612 w27 w25 w44 s1 r w4 s2 r',# 12 Sep 2023
+# 'c353919c/player_ias.vflset/en_US/base' => '19478 w23 r s1',    # 01 May 2023
+# '50cf60f0/player_ias.vflset/en_US/base' => '19480 w38 r w46 s3 r s1 r s3',# 03 May 2023
+# '65ceadf9/player_ias.vflset/en_US/base' => '19485 w4 r s2 r w19 s2 r s2 w41',# 08 May 2023
+# 'cfa9e7cb/player_ias.vflset/en_US/base' => '19487 w59 w2 s1 w16 w18 s2 r',# 10 May 2023
+# 'e50626d8/player_ias.vflset/en_US/base' => '19494 s1 w12 r w54 s2',# 17 May 2023
+# '41b8bed0/player_ias.vflset/en_US/base' => '19499 r s2 w55 r',  # 22 May 2023
+# 'bbe1b497/player_ias.vflset/en_US/base' => '19501 s1 r w53 s1 w31 s3 r s2',# 24 May 2023
+# 'f55759b8/player_ias.vflset/en_US/base' => '19508 s2 w67 s2 w20 r',# 31 May 2023
+# 'b128dda0/player_ias.vflset/en_US/base' => '19513 r s3 r w66 s2 w12',# 05 Jun 2023
+# '8c7583ff/player_ias.vflset/en_US/base' => '19515 w47 r w26',   # 07 Jun 2023
+# '0c9b5d20/player_ias.vflset/en_US/base' => '19520 r w57 s3 r s3 w20',# 12 Jun 2023
+# '6ed0d907/player_ias.vflset/en_US/base' => '19522 r s1 r w56 s3 r s2',# 14 Jun 2023
+# 'b7910ca8/player_ias.vflset/en_US/base' => '19529 w31 w24 r w54 r',# 21 Jun 2023
+# '71547d26/player_ias.vflset/en_US/base' => '19534 r w30 w31 r s2 r s3 w52 w26',# 26 Jun 2023
+# '23604418/player_ias.vflset/en_US/base' => '19536 w35 r s1 w25 r s3 w54 s1 w52',# 28 Jun 2023
+# '1dda5629/player_ias.vflset/en_US/base' => '19543 w35 r s3 r',  # 05 Jul 2023
+# 'f2f137c6/player_ias.vflset/en_US/base' => '19548 r w19 w22 w66 r w36',# 10 Jul 2023
+# '4cc5d082/player_ias.vflset/en_US/base' => '19550 s3 r w4 r s1 r s3',# 12 Jul 2023
+# '30857836/player_ias.vflset/en_US/base' => '19555 r s3 r w21 s2 w44 w1 w25 s1',# 17 Jul 2023
+# '8e83803a/player_ias.vflset/en_US/base' => '19557 w42 w14 w54 s2 r w27 s3',# 19 Jul 2023
+# 'd0936ad4/player_ias.vflset/en_US/base' => '19562 w4 s3 r',     # 24 Jul 2023
+# '0e6aaa83/player_ias.vflset/en_US/base' => '19563 w3 r w23 w12 s3 w36 s2',# 25 Jul 2023
+# '2363d0d2/player_ias.vflset/en_US/base' => '19569 w4 w1 r s1 w14 s1 r w22',# 31 Jul 2023
+# 'f98908d1/player_ias.vflset/en_US/base' => '19571 s3 r w50 r w44 w26 r',# 02 Aug 2023
+# '4eae42b1/player_ias.vflset/en_US/base' => '19576 w46 r s2',    # 07 Aug 2023
+# '3cd2d050/player_ias.vflset/en_US/base' => '19578 w62 w62 r w18 r s1',# 09 Aug 2023
+# 'da7c2a60/player_ias.vflset/en_US/base' => '19583 w9 w53 s2',   # 14 Aug 2023
+# 'f980f2a9/player_ias.vflset/en_US/base' => '19585 r w37 r s1',  # 16 Aug 2023
+# '21812a9c/player_ias.vflset/en_US/base' => '19590 r s2 w18 r s2 w45 r',# 21 Aug 2023
+# 'c153b631/player_ias.vflset/en_US/base' => '19593 r s3 w14',    # 24 Aug 2023
+# '16f9263d/player_ias.vflset/en_US/base' => '19597 s1 r s1 r w3 r s3 r s3',# 28 Aug 2023
+# '0a835141/player_ias.vflset/en_US/base' => '19599 w49 w20 w25 s1',# 30 Aug 2023
+# '7ee36b0e/player_ias.vflset/en_US/base' => '19605 r s1 r',      # 05 Sep 2023
+# 'de91d1cf/player_ias.vflset/en_US/base' => '19611 r s1 r',      # 11 Sep 2023
+# 'afd1b6e5/player_ias.vflset/en_US/base' => '19612 w27 w25 w44 s1 r w4 s2 r',# 12 Sep 2023
+# '9cbb6b90/player_ias.vflset/en_US/base' => '19618 r s2 w41 s2 w64 r s3 w67 w66',# 18 Sep 2023
+# '019a2dc2/player_ias.vflset/en_US/base' => '19619 r w62 s1 r s3',# 19 Sep 2023
+# 'f130aa11/player_ias.vflset/en_US/base' => '19620 r w10 s1 w48 w62 s2 w25 r s1',# 20 Sep 2023
+# '2626486d/player_ias.vflset/en_US/base' => '19625 w42 w19 w65 r s3',# 25 Sep 2023
+# 'f7e1823a/player_ias.vflset/en_US/base' => '19627 r w41 r',     # 27 Sep 2023
+  'e95f6cb1/player_ias.vflset/en_US/base' => '19632 w35 s2 w70 s1 r',# 02 Oct 2023
+  '4a66ccde/player_ias.vflset/en_US/base' => '19634 r w38 r w45 r s2',# 04 Oct 2023
+  '5279ebfe/player_ias.vflset/en_US/base' => '19639 r w23 s3 r s2 r w23 s3',# 09 Oct 2023
+  '99faf012/player_ias.vflset/en_US/base' => '19641 r s2 w26 w12 s1',# 11 Oct 2023
+  'dd34ec3d/player_ias.vflset/en_US/base' => '19646 r w54 r s2 w24 w8 s1 r',# 16 Oct 2023
+  '96163992/player_ias.vflset/en_US/base' => '19654 w15 r s1 w66 w24 s2',# 24 Oct 2023
+  '9e328581/player_ias.vflset/en_US/base' => '19655 w3 r s2 w26 s3 w70 s2',# 26 Oct 2023
+  '0b285984/player_ias.vflset/en_US/base' => '19660 w67 s1 w31',  # 30 Oct 2023
+  '9d15588c/player_ias.vflset/en_US/base' => '19662 w55 r s2 r w13 s3',# 01 Nov 2023
+  '2be84af7/player_ias.vflset/en_US/base' => '19667 s2 r s1 r s2 w15 w26 s1 r',# 07 Nov 2023
+  '5bdfe6d5/player_ias.vflset/en_US/base' => '19669 s2 r w50',    # 08 Nov 2023
+  'f279c958/player_ias.vflset/en_US/base' => '19674 w70 s3 r s3 r s3',# 13 Nov 2023
+  '190c935f/player_ias.vflset/en_US/base' => '19676 w41 s2 r w35 w24 r w6 s2',# 15 Nov 2023
+  '63e90c30/player_ias.vflset/en_US/base' => '19681 r w54 r s3 w48',# 20 Nov 2023
+  '5753e790/player_ias.vflset/en_US/base' => '19688 r w52 r w18 s1 r',# 27 Nov 2023
+  '31e0b6d9/player_ias.vflset/en_US/base' => '19691 w30 w64 s3 w27 r',# 30 Nov 2023
+  'dee96cfa/player_ias.vflset/en_US/base' => '19697 r w62 s3 r w11 w31',# 06 Dec 2023
+  '0d02ada0/player_ias.vflset/en_US/base' => '19702 s2 r w48 r',  # 11 Dec 2023
+  'd23221b6/player_ias.vflset/en_US/base' => '19704 w23 r s1 r w43 s3',# 13 Dec 2023
+  'da154528/player_ias.vflset/en_US/base' => '19709 s3 r s2 w60 r',# 18 Dec 2023
+  '4fd50162/player_ias.vflset/en_US/base' => '19725 s2 r w14 s2 w3 w55 w70 s2',# 03 Jan 2024
+  '8c0b101b/player_ias.vflset/en_US/base' => '19730 r s3 w60 s3 w46',# 08 Jan 2024
+  '80b90bfd/player_ias.vflset/en_US/base' => '19732 w37 w50 w64', # 10 Jan 2024
+  '787e9b63/player_ias.vflset/en_US/base' => '19738 r w51 w25',   # 16 Jan 2024
+  '42a553e1/player_ias.vflset/en_US/base' => '19739 w44 s1 r w58 w20 s2',# 17 Jan 2024
+  'b31b88f2/player_ias.vflset/en_US/base' => '19744 w47 w10 w35 s1 w39 s2 w18',# 22 Jan 2024
+  '717a6f94/player_ias.vflset/en_US/base' => '19745 w60 s1 r s3 r w5 r s3',# 23 Jan 2024
+  'cb886c6c/player_ias.vflset/en_US/base' => '19746 r s2 w24 w44 s1 r w6',# 24 Jan 2024
+  'f502d0a4/player_ias.vflset/en_US/base' => '19752 w39 w67 s3 r s2 r',# 30 Jan 2024
+  '6ee8f9ce/player_ias.vflset/en_US/base' => '19751 s3 w16 w44 w34 w37 s3',# 29 Jan 2024
+  'a1d7d0f8/player_ias.vflset/en_US/base' => '19753 w48 w13 r w7 r s1 r s1',# 31 Jan 2024
+  '5e928255/player_ias.vflset/en_US/base' => '19759 s3 w9 w62 s2 w62 w10 w3',# 06 Feb 2024
+  '2b39c590/player_ias.vflset/en_US/base' => '19765 r w28 r w66 r s2 w37 r',# 12 Feb 2024
+  'b854ee52/player_ias.vflset/en_US/base' => '19766 w66 s3 r w42 s1 r s2 r s1',# 13 Feb 2024
+  '12356a38/player_ias.vflset/en_US/base' => '19768 s1 r s2 w55', # 15 Feb 2024
+  '5683fc5e/player_ias.vflset/en_US/base' => '19767 s1 w59 s1 w19 w28 s1 w15 s3 r',# 14 Feb 2024
+  '2070f79f/player_ias.vflset/en_US/base' => '19773 w52 s3 w45 r w53 r s1 w29',# 20 Feb 2024
+  '3ffefd71/player_ias.vflset/en_US/base' => '19774 s3 r w36 s3 r s2 w46 s1 r',# 21 Feb 2024
+  '95cde7ed/player_ias.vflset/en_US/base' => '19779 r s2 w49 s3 r',# 26 Feb 2024
+  '6f21feb8/player_ias.vflset/en_US/base' => '19780 r w31 s1 r s3 w56 w26 s3 w4',# 27 Feb 2024
+  '31eb286a/player_ias.vflset/en_US/base' => '19781 r s1 w10',    # 28 Feb 2024
+  'f07d053d/player_ias.vflset/en_US/base' => '19786 w18 r w26 s3 r',# 04 Mar 2024
+  'c48a9559/player_ias.vflset/en_US/base' => '19788 w43 r s3 r s3 r w15 s2',# 06 Mar 2024
+  'd552837c/player_ias.vflset/en_US/base' => '19795 s2 r w14 s1 r w29 r',# 13 Mar 2024
+  '589f1394/player_ias.vflset/en_US/base' => '19800 s3 w30 w11 r w52 w19 r',# 18 Mar 2024
+  '3b96d06c/player_ias.vflset/en_US/base' => '19809 r s3 r s3 r', # 27 Mar 2024
+  'bf2df3ec/player_ias.vflset/en_US/base' => '19814 r s3 r s2 w28 s1 r w25 s1',# 01 Apr 2024
+  'fa761abe/player_ias.vflset/en_US/base' => '19815 w38 s3 r w10 s3',# 02 Apr 2024
+  '1ced3a71/player_ias.vflset/en_US/base' => '19816 w23 s3 w60 r w24 r w21 w25 s1',# 03 Apr 2024
+  '45986ce4/player_ias.vflset/en_US/base' => '19821 r s3 w13 r s2 w13 s1 w55 s1',# 08 Apr 2024
+  'd0ea0c5b/player_ias.vflset/en_US/base' => '19822 r s1 w21 r w13 w18 r w19',# 09 Apr 2024
+  '7ebf4817/player_ias.vflset/en_US/base' => '19823 w60 s1 w10 w9 w59',# 10 Apr 2024
 );
 
 # June 2023: https://github.com/zerodytrash/YouTube-Internal-Clients
@@ -3302,6 +3441,11 @@ sub page_cipher_base_url($$) {
 # and intuits what the current cipher is.  Normally we go by the list of
 # known ciphers above, but if that fails, we try and do it the hard way.
 #
+#                      This code is not code of honor.
+#               No highly esteemed hack is commemorated here.
+#               What is here is dangerous and repulsive to me.
+#                 This code is best shunned and left unread.
+#
 sub guess_cipher($;$$) {
   my ($cipher_id, $selftest_p, $nowarn) = @_;
 
@@ -3324,7 +3468,17 @@ sub guess_cipher($;$$) {
       '';
     }%gsex;
 
-    errorI ("no  videos found on home page $url") unless @vids;
+    if (! @vids) {
+      # As of March 2024, the top-level page does not even contain any
+      # links to videos any more.  It's all buried in some XHR bullshit
+      # that I have not bothered to track down.  But we need one random
+      # video to check the current cipher.  A video that is never going
+      # to give us up.
+      print STDERR "$progname: no videos on home page, using RR\n";
+      push @vids, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+    }
+
+    errorI ("no videos found on home page $url") unless @vids;
 
     # Get random video -- pick one towards the middle, because sometimes
     # the early ones are rental videos.
@@ -3549,6 +3703,14 @@ sub guess_cipher($;$$) {
 
 # Tired of doing this by hand. Crontabbed self-modifying code!
 #
+# Yes, that's right: this Perl program loads an HTML document, parses
+# intentionally-obfuscated and minimized JavaScript from it using regular
+# expressions, translates the logic in that code to another specialized
+# sub-language, saves that new code into this Perl program's own source
+# code, overwrites itself, and publishes an updated version of its own
+# source code on the web.  The Turing Police say you have more than two
+# problems.
+#
 sub auto_update($) {
   my ($cipher_line) = @_;
 
@@ -3647,6 +3809,8 @@ sub youtube_parse_urlmap($$$;$) {
     $urlmap =~ s/^\{//s;
 
     # FFS, I don't want to write a whole JSON parser!
+    # Yeah I probably should have just used JSON::Any starting a decade
+    # ago but I didn't and now here we are.
     # codecs=\"abc, def\"  ->  %2C
     $urlmap =~ s/(\\".*?\\")/{ my $s = $1; $s =~ s@,@%2C@gs; $s; }/gsexi;
     $urlmap =~ s/"( [^\"\[\],]*? )" :
@@ -4650,8 +4814,9 @@ sub load_vimeo_formats($$$) {
   my ($title)  = ($body =~ m@    "title" : \s* " (.+?) ", @six);
   my ($files0) = ($body =~ m@ \{ "h264"  : \s* \{ ( .+? \} ) \} , @six);
   my ($files1) = ($body =~ m@ \{ "vp6"   : \s* \{ ( .+? \} ) \} , @six);
-  my ($files2) = ($body =~ m@   "progressive" : \s* \[ ( .+? \] ) \} @six);
+  my ($files2) = ($body =~ m@   "progressive" : \s* \[ ( .*? \] ) \} @six);
   my $files    = ($files0 || '') . ($files1 || '') . ($files2 || '');
+  my ($dash)   = ($body =~ m@   "avc_url" : \s* " ( .*? ) " @six);
 
   my ($thumb)  = ($body =~ m/"thumbs":\{"\d+":"(.*?)"/s);
 
@@ -4720,6 +4885,54 @@ sub load_vimeo_formats($$$) {
               );
       $fmts{$i} = \%v;
       $i++;
+    }
+  }
+
+  # Vimeo is now serving DASH and HLS but in a way that cannot be parsed
+  # with youtube_parse_dashmpd, hooray.
+  #
+  if ($dash) {
+    my ($http, $head, $body) = get_url ($dash);
+    check_http_status ($id, $dash, $http, 1);
+
+    my ($video) = ($body =~ m@ "video" : \[ ( .+? ) \] , [\"\}] @six);
+    my ($audio) = ($body =~ m@ "audio" : \[ ( .+? ) \] \} @six);
+    $video .= ",$audio" if ($audio);
+
+    # Insert space after comma inside "segments" so we can split on },{
+    $video =~ s@ ( \[ .*? \] )@{
+      my $a = $1; $a =~ s/(\},)/$1 /gs; $a;
+      }@gsex;
+
+    foreach my $rep (split (/\},\{/s, $video)) {
+      my ($k)    = ($rep =~ m@ "id"        : " ( .+? ) " @six);
+      my ($base) = ($rep =~ m@ "base_url"  : " ( .+? ) " @six);
+      my ($mime) = ($rep =~ m@ "mime_type" : " ( .+? ) " @six);
+      my ($type) = ($rep =~ m@ "codecs"    : " ( .+? ) " @six);
+      my ($w)    = ($rep =~ m@ "width"     : ( \d+ )     @six);
+      my ($h)    = ($rep =~ m@ "height"    : ( \d+ )     @six);
+      my ($segs) = ($rep =~ m@ "segments"  : \[ ( .+? ) ( \] | $ )  @six);
+      print STDERR "#### $rep\n" unless $mime;
+      next unless $mime; # 8-Feb-2024, WTF, have not investigated
+      $type = "$mime;+codecs=\"$type\"";
+
+      $base = url_unquote ($base);
+      if ($base !~ m/^https?:/s) {
+        $base = "$1/$base" if ($dash =~ m@^(https?://[^/]+)@s);
+      }
+
+      # Ok so $base looks like https://___.akamaized.net/video/___.mp4?r=___
+      # and is 404.  The segments don't have URLs in them but do have
+      # "range":"NNNN-NNNNN". What do I do with this shit?
+      #
+      my @urls = ();
+      foreach my $seg (split (/\},\s*\{/, $segs)) {
+        my ($url) = ($seg =~ m@ "url" : " ( .+? ) " @six);
+        push @urls, $url;
+      }
+
+      #### TODO
+      # print STDERR "## [$k] [$type] [$w] [$h] @urls\n";
     }
   }
 
@@ -5114,7 +5327,7 @@ sub pick_download_format($$$$$$) {
     print STDERR "$progname: $id: picked #$best (" .
                  $fmts->{$best}->{w} . " x " .
                  $fmts->{$best}->{h} . ")\n"
-      if ($verbose > 1);
+      if ($verbose > 1 && $best);
     return $best;
   } elsif ($site ne 'youtube') {
     errorI ("unknown site $site");
@@ -5271,6 +5484,9 @@ sub pick_download_format($$$$$$) {
    697 => { v => 'av1',  w =>  854, h =>  480, a => undef               },
    698 => { v => 'av1',  w => 1280, h =>  720, a => undef               },
    699 => { v => 'av1',  w => 1920, h => 1080, a => undef               },
+   700 => { v => 'av1',  w => 2560, h => 1440, a => undef               },
+   701 => { v => 'av1',  w => 3840, h => 2160, a => undef               },
+   774 => { v => undef,                        a => 'opus', abr =>  254 },
    'rawcc' => { },
   );
   #
@@ -5279,6 +5495,22 @@ sub pick_download_format($$$$$$) {
   # (Oh great, they deleted that table from Wikipedia. Lovely.)
   # (Ah great, they added the table back to Wikipedia Mar 2016.)
   # (Aaaand it's gone again, some time before Mar 2019.)
+  #
+  # The last useful version of the table was here, 2016-04-28:
+  #  https://en.wikipedia.org/w/index.php?title=YouTube&oldid=717644968
+  #
+  # It was "condensed" (that is, destroyed) in this edit, 2016-06-03:
+  #   https://en.wikipedia.org/w/index.php?title=YouTube&oldid=723482655
+  #
+  # Someone tried to put some of it back, and that was deleted with the
+  # comment, "All of the video formats were removed due to WP:OR
+  # ('original research') being the only way to obtain them".
+  #   https://en.wikipedia.org/w/index.php?title=YouTube&oldid=895060905
+  #
+  # Way to go, Wikipedia. Continue to allow politics to trump utility.
+  #
+  #   
+  # Here's the last version of the table:
   #
   # fmt=38/37/22 are only available if upload was that exact resolution.
   #
@@ -5473,6 +5705,9 @@ sub pick_download_format($$$$$$) {
 
     # Ignore 3d video or other weirdo vcodecs.
     next if ($v && !($v =~ m/^(mp4|flv|3gpp?|webm|av1)$/));
+
+    # Ignore Opus, which ffmpeg 4.2 calls "experimental".
+    next if ($a && $a =~ m/^(opus)$/);
 
     if (! $webm_p) {
       # Skip WebM and Vorbis if desired.
@@ -6725,6 +6960,11 @@ sub download_video_url($$$$$$$$$$$$) {
                ? ($target == $pair[0] ? $outfiles[0] : $outfiles[1])
                : $outfile)
         if (defined($outfile));
+
+      # Don't leave a video-only file hanging around if muxing fails.
+      if (@pair && !$outfile) {
+        $rm_f{$file} = 1;
+      }
 
       $fmt->{file} = $file;
 
