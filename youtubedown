@@ -85,7 +85,7 @@ use Encode;
 
 my $progname0 = $0;
 my $progname = $0; $progname =~ s@.*/@@g;
-my ($version) = ('$Revision: 1.2063 $' =~ m/\s(\d[.\d]+)\s/s);
+my ($version) = ('$Revision: 1.2095 $' =~ m/\s(\d[.\d]+)\s/s);
 
 # Without this, [:alnum:] doesn't work on non-ASCII.
 use locale;
@@ -97,6 +97,7 @@ my $append_suffix_p = 0;
 my $webm_p = 0;
 my $webm_transcode_p = 0;
 my $parallel_loads = 30;
+my $preferred_language = 'en';
 
 my $http_proxy = undef;
 my $ffmpeg = 'ffmpeg';
@@ -3357,6 +3358,34 @@ my %ciphers = (
   '45986ce4/player_ias.vflset/en_US/base' => '19821 r s3 w13 r s2 w13 s1 w55 s1',# 08 Apr 2024
   'd0ea0c5b/player_ias.vflset/en_US/base' => '19822 r s1 w21 r w13 w18 r w19',# 09 Apr 2024
   '7ebf4817/player_ias.vflset/en_US/base' => '19823 w60 s1 w10 w9 w59',# 10 Apr 2024
+  '03dc2242/player_ias.vflset/en_US/base' => '19828 w24 s3 w28 w63 r s1',# 15 Apr 2024
+  'f92087f2/player_ias.vflset/en_US/base' => '19829 w42 r s2 w4', # 16 Apr 2024
+  '0af6e327/player_ias.vflset/en_US/base' => '19830 s3 w40 w26 w40 r s2 w6 r s3',# 17 Apr 2024
+  'd8a5aa5e/player_ias.vflset/en_US/base' => '19835 s2 w70 w24 r s1 w3',# 22 Apr 2024
+  '9135c2ab/player_ias.vflset/en_US/base' => '19836 w56 w45 s1 r',# 23 Apr 2024
+  '652ba3a2/player_ias.vflset/en_US/base' => '19837 w54 s2 r s2 w24 w36 r s2',# 24 Apr 2024
+  '7ee5b648/player_ias.vflset/en_US/base' => '19838 w40 w23 r s2 w22 w39 w39',# 25 Apr 2024
+  '5d0dbf62/player_ias.vflset/en_US/base' => '19842 w39 w32 s3 r s3 w4 s3 r',# 29 Apr 2024
+  '8fc6998a/player_ias.vflset/en_US/base' => '19843 w66 r s2 r',  # 30 Apr 2024
+  '7d1f7724/player_ias.vflset/en_US/base' => '19844 r w27 w36 s1 r s3',# 01 May 2024
+  'edea0cc6/player_ias.vflset/en_US/base' => '19845 s1 w29 w39 s2 r',# 02 May 2024
+  '178de1f2/player_ias.vflset/en_US/base' => '19850 s3 r s2 w60', # 07 May 2024
+  'bfee6dea/player_ias.vflset/en_US/base' => '19849 r s1 w64 w61 r s2 w54',# 06 May 2024
+  '17fd9675/player_ias.vflset/en_US/base' => '19851 s3 w17 r s2 w2',# 08 May 2024
+  'a960a0cb/player_ias.vflset/en_US/base' => '19852 s1 w41 w63 s1 w31 w59 s2',# 09 May 2024
+  'db9cbc4e/player_ias.vflset/en_US/base' => '19856 w43 w57 s2 r w24 s3 w63 s2 r',# 13 May 2024
+  '74a3a562/player_ias.vflset/en_US/base' => '19857 s1 w6 w12 w46 w52 w6 w42',# 14 May 2024
+  'b05eda73/player_ias.vflset/en_US/base' => '19859 r s1 r w37 w53',# 16 May 2024
+  '1844df69/player_ias.vflset/en_US/base' => '19859 r s1 r w37 w53',# 16 May 2024
+  'eff63141/player_ias.vflset/en_US/base' => '19864 s3 r w31 s1', # 21 May 2024
+  '0503eb76/player_ias.vflset/en_US/base' => '19866 w22 r w9 r s2 r w63',# 23 May 2024
+  'bc657243/player_ias.vflset/en_US/base' => '19865 w50 r w37 w49 r',# 22 May 2024
+  'b9ad8b0a/player_ias.vflset/en_US/base' => '19870 w33 w50 s3 r s2 r w55',# 27 May 2024
+  '79e6d03a/player_ias.vflset/en_US/base' => '19872 w17 r w22 s3',# 29 May 2024
+  '74bb7b07/player_ias.vflset/en_US/base' => '19873 w69 w35 w14 r',# 30 May 2024
+  '4b63a6a1/player_ias.vflset/en_US/base' => '19877 w3 r w35 s2 w58 r s1 r w66',# 03 Jun 2024
+  'e056da8e/player_ias.vflset/en_US/base' => '19878 w58 r w15 s3 r s2 w62 s1 r',# 04 Jun 2024
+  'dee49cfa/player_ias.vflset/en_US/base' => '19879 w62 s2 r w1 r w11',# 05 Jun 2024
 );
 
 # June 2023: https://github.com/zerodytrash/YouTube-Internal-Clients
@@ -3474,7 +3503,8 @@ sub guess_cipher($;$$) {
       # that I have not bothered to track down.  But we need one random
       # video to check the current cipher.  A video that is never going
       # to give us up.
-      print STDERR "$progname: no videos on home page, using RR\n";
+      print STDERR "$progname: no videos on home page, using RR\n"
+        if ($verbose > 1);
       push @vids, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
     }
 
@@ -3971,19 +4001,32 @@ sub youtube_parse_urlmap($$$;$) {
       next;
     }
 
+    my ($lang) = ($v =~ m@ (?: %3A | & ) lang (?: = | %3D ) ( [a-z]+ ) @sx);
+    $lang = '' unless $lang;
     my %v = ( fmt  => $k,
               url  => $v,
               content_type => $ct,
               w => $w,
               h => $h,
               size => $size,
+              lang => $lang,
             );
 
-    if (! defined ($into->{$k})) {
-      $into->{$k} = \%v;
-      print STDERR "$progname: $id: found fmt $k\n" if ($verbose > 2);
+      print STDERR "$progname: $id: found fmt $k" .
+                   ($lang ? " lang \"$lang\"" : "") . "\n"
+        if ($verbose > 2);
+
+    my $old = $into->{$k};
+    if ($old &&
+        $old->{lang} &&
+        $old->{lang} ne $preferred_language) {
+      print STDERR "$progname: $id: skipping fmt $k" .
+                   " lang \"" . $old->{lang}. "\" for \"$lang\"\n"
+        if ($verbose > 3);
+      $old = undef;
     }
 
+    $into->{$k} = \%v unless $old;
     $count++;
   }
 
@@ -4102,6 +4145,9 @@ sub youtube_parse_dashmpd($$$$) {
         if ($url0);
     }
 
+    my ($lang) = ($url =~ m@ (?: %3A | & ) lang (?: = | %3D ) ( [a-z]+ ) @sx);
+    $lang = '' unless $lang;
+
     my %v = ( fmt => $k,
               url => $url,
               content_type => $type,
@@ -4116,13 +4162,23 @@ sub youtube_parse_dashmpd($$$$) {
     my $prefer_dash_p = 1;
     my $old = $into->{$k};
     $old = undef if ($prefer_dash_p && $old && !$old->{dashp});
-    if (!$old) {
-      $into->{$k} = \%v;
-      print STDERR "$progname: $id: found fmt $k" .
-            (ref($url) eq 'ARRAY' ? " (" . scalar(@$url) . " segs)" : "") .
-            "\n"
-        if ($verbose > 2);
+
+    print STDERR "$progname: $id: found fmt $k" .
+          (ref($url) eq 'ARRAY' ? " (" . scalar(@$url) . " segs)" : "") .
+          ($lang ? " lang \"$lang\"" : "") .
+          "\n"
+      if ($verbose > 2);
+
+    if ($old &&
+        $old->{lang} &&
+        $old->{lang} ne $preferred_language) {
+      print STDERR "$progname: $id: skipping fmt $k" .
+                   " lang \"" . $old->{lang}. "\" for \"$lang\"\n"
+        if ($verbose > 3);
+      $old = undef;
     }
+
+    $into->{$k} = \%v unless $old;
     $count++;
   }
 
@@ -4912,7 +4968,7 @@ sub load_vimeo_formats($$$) {
       my ($w)    = ($rep =~ m@ "width"     : ( \d+ )     @six);
       my ($h)    = ($rep =~ m@ "height"    : ( \d+ )     @six);
       my ($segs) = ($rep =~ m@ "segments"  : \[ ( .+? ) ( \] | $ )  @six);
-      print STDERR "#### $rep\n" unless $mime;
+      # print STDERR "#### $rep\n" unless $mime;
       next unless $mime; # 8-Feb-2024, WTF, have not investigated
       $type = "$mime;+codecs=\"$type\"";
 
@@ -5487,6 +5543,8 @@ sub pick_download_format($$$$$$) {
    700 => { v => 'av1',  w => 2560, h => 1440, a => undef               },
    701 => { v => 'av1',  w => 3840, h => 2160, a => undef               },
    774 => { v => undef,                        a => 'opus', abr =>  254 },
+   779 => { v => 'webm', w =>  886, h =>  608, a => undef               },
+   780 => { v => 'webm', w =>  886, h =>  608, a => undef               },
    'rawcc' => { },
   );
   #
@@ -5881,7 +5939,7 @@ sub pick_download_format($$$$$$) {
                    keys(%$fmts)) {
       next if ($k eq 'title' || $k eq 'year' || $k eq 'cipher' ||
                $k eq 'thumb');
-      print STDERR sprintf("%s:   %3d (%s)\n",
+      print STDERR sprintf("%s:   %3d (%s%s)\n",
                            $progname, $k,
                            ($known_formats{$k}->{desc} || '?') .
                            ($fmts->{$k}->{dashp}
@@ -5890,7 +5948,11 @@ sub pick_download_format($$$$$$) {
                                 ? ' ' . scalar(@{$fmts->{$k}->{url}}) .
                                   ' segments'
                                 : ''))
-                            : ''));
+                            : ''),
+                           ($fmts->{$k}->{lang}
+                            ? ", lang \"" . $fmts->{$k}->{lang} . "\""
+                            : "")
+                           );
     }
   }
 
@@ -7383,6 +7445,7 @@ sub usage() {
            "\t\t   [--title txt] [--prefix txt] [--suffix] [--out file]\n" .
            "\t\t   [--fmt N] [--no-mux] [--bwlimit N [kb | KB | mb | MB]]\n" .
            "\t\t   [--max-size WxH] [--webm] [--webm-transcode]\n" .
+           "\t\t   [--language $preferred_language]\n" .
            "\t\t   [--parallel-loads N]\n" .
            "\t\t   youtube-or-vimeo-urls ...\n";
   exit 1;
@@ -7446,6 +7509,7 @@ sub main() {
     elsif (m/^--?max-size$/) { $max_size = parse_size ($_, shift @ARGV); }
     elsif (m/^--?guess$/)    { $guessp++; }
     elsif (m/^--?para(l+el+(-loads?)?)?$/) { $parallel_loads = 0+shift @ARGV; }
+    elsif (m/^--?lang(uage)?$/) { $preferred_language = shift @ARGV; }
     elsif (m/^--?bwlimit$/) {
       #
       # Many variant spellings are allowed:
